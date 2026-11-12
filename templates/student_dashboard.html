@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Student dashboard · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container dashboard-heading"><div><div class="eyebrow">STUDENT DEMO PORTAL</div><h1>Welcome, <em>{{ student.name }}.</em></h1><p>{{ student.email }} · Demo profile, not a verified account.</p></div><form method="post" action="/student/logout"><button class="button-secondary" type="submit">Exit demo</button></form></div></section>
+<section class="container dashboard-page">
+  <div class="dashboard-callout"><strong>Prototype mode</strong><span>Saved items and searches are stored locally in this browser. No real account or password is created.</span></div>
+  <div class="dashboard-grid">
+    <section class="dashboard-panel"><div class="panel-heading"><div><div class="eyebrow">YOUR SHORTLIST</div><h2>Saved colleges</h2></div><a class="text-link" href="/college">Explore →</a></div><div id="savedCollegeList" class="saved-list"><p class="empty-info">Loading saved colleges…</p></div></section>
+    <section class="dashboard-panel"><div class="panel-heading"><div><div class="eyebrow">YOUR RECENT ACTIVITY</div><h2>Saved searches</h2></div><a class="text-link" href="/colleges">Search →</a></div><div id="savedSearchList" class="saved-list"><p class="empty-info">Loading searches…</p></div></section>
+    <section class="dashboard-panel"><div class="panel-heading"><div><div class="eyebrow">CHATBOT</div><h2>Previous conversations</h2></div><a class="text-link" href="/chat">Open chatbot →</a></div><div id="savedConversationList" class="saved-list"><p class="empty-info">Loading conversations…</p></div></section>
+    <section class="dashboard-panel"><div class="panel-heading"><div><div class="eyebrow">ADMISSION INFORMATION</div><h2>Counselling guidance</h2></div></div><p class="empty-info">Review the relevant stream information and follow its linked official source for current details.</p><a class="text-link" href="/college">Browse counselling topics →</a></section>
+  </div>
+  <div class="dashboard-shortcuts"><a href="/compare">Compare colleges →</a><a href="/college">Explore streams →</a></div>
+</section>
+{% endblock %}
+{% block scripts %}<script>window.collegeDirectory = {{ college_directory|tojson }};</script><script src="{{ url_for('static', filename='js/college.js') }}"></script>{% endblock %}

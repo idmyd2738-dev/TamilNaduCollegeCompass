@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}College comparison · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><a class="back-link" href="/colleges">← College directory</a><div class="eyebrow">COLLEGE COMPARISON</div><h1>Compare your <em>shortlist.</em></h1><p>Choose two or three colleges from the directory. Missing information is shown explicitly.</p></div></section>
+<section class="container compare-page">
+  {% if colleges|length >= 2 %}
+  <div class="compare-table-wrap"><table class="compare-table"><thead><tr><th scope="col">Information</th>{% for college in colleges %}<th scope="col"><a href="/colleges/{{ college.id }}">{{ college.name }}</a><button type="button" class="remove-compare" data-remove-compare="{{ college.id }}" aria-label="Remove {{ college.name }} from comparison">× Remove</button></th>{% endfor %}</tr></thead><tbody>
+    <tr><th scope="row">District</th>{% for college in colleges %}<td>{{ college.district or 'Not provided' }}</td>{% endfor %}</tr>
+    <tr><th scope="row">Stream</th>{% for college in colleges %}<td>{{ college.stream_name }}</td>{% endfor %}</tr>
+    <tr><th scope="row">Category</th>{% for college in colleges %}<td>{{ college.category or 'Not provided' }}</td>{% endfor %}</tr>
+    <tr><th scope="row">Ownership</th>{% for college in colleges %}<td>{{ college.ownership or 'Not provided' }}</td>{% endfor %}</tr>
+    <tr><th scope="row">Courses</th>{% for college in colleges %}<td>{{ college.course_names or 'Not provided' }}</td>{% endfor %}</tr>
+    <tr><th scope="row">Fees</th>{% for college in colleges %}<td>{% if college.min_fee is not none %}₹{{ '%.2f'|format(college.min_fee) }} from sample record{% else %}Not provided{% endif %}</td>{% endfor %}</tr>
+    <tr><th scope="row">Facilities</th>{% for college in colleges %}<td>{% if college.facilities %}{% for facility in college.facilities %}{{ facility.label }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Not provided{% endif %}</td>{% endfor %}</tr>
+    <tr><th scope="row">Hostel availability</th>{% for college in colleges %}<td>{% if college.hostel_available is none %}Not provided{% elif college.hostel_available %}Yes · unverified{% else %}No · unverified{% endif %}</td>{% endfor %}</tr>
+    <tr><th scope="row">Official website</th>{% for college in colleges %}<td>{% if college.official_website %}<a href="{{ college.official_website }}" target="_blank" rel="noopener noreferrer">Visit website ↗</a>{% else %}Not provided{% endif %}</td>{% endfor %}</tr>
+    <tr><th scope="row">Information status</th>{% for college in colleges %}<td>{% with status=college.information_status %}{% include 'status_badge.html' %}{% endwith %}</td>{% endfor %}</tr>
+  </tbody></table></div>
+  {% else %}<div class="empty-state"><div>⇄</div><h2>Select 2–3 colleges to compare</h2><p>Use “Compare” on college cards. Your shortlist is stored in this browser.</p><a class="button-primary" href="/colleges">Browse colleges</a></div>{% endif %}
+  <p class="record-meta">All profile records are fictional demo data. Values are not official recommendations or admission advice.</p>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/college.js') }}"></script>{% endblock %}

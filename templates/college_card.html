@@ -1,0 +1,11 @@
+<article class="college-card" data-college-id="{{ c.id }}">
+  <div class="college-banner"><span>{{ c.stream_name }}</span><span class="demo-label">SAMPLE</span><span class="banner-initial" aria-hidden="true">{{ c.stream_name[0] }}</span></div>
+  <div class="college-body">
+    <div class="location">⌖ {{ c.city }}, {{ c.district }}</div>
+    <h3>{{ c.name }}</h3>
+    {% with status=c.information_status %}{% include 'status_badge.html' %}{% endwith %}
+    <p>{{ c.description }}</p>
+    {% if c.course_names %}<div class="course-preview"><strong>Courses</strong><span>{{ c.course_names }}</span></div>{% endif %}
+    <div class="college-card-actions"><a class="text-link" href="/colleges/{{ c.id }}">View profile →</a><button type="button" class="favorite-toggle" data-favorite-id="{{ c.id }}" aria-pressed="false">♡ Save</button><button type="button" class="compare-toggle" data-compare-id="{{ c.id }}">Compare</button></div>
+  </div>
+</article>

@@ -1,39 +1,18 @@
 {% extends "base.html" %}
 {% block title %}{{ college.name }} · CollegeHub{% endblock %}
 {% block content %}
-<section class="profile-hero">
-  <div class="container">
-    <a class="back-link" href="/colleges"><span aria-hidden="true">←</span> Back to colleges</a>
-    <div class="profile-label">{{ college.stream_name }} <span>·</span> SAMPLE PROFILE</div>
-    <h1>{{ college.name }}</h1>
-    <p class="profile-location"><span aria-hidden="true">⌖</span> {{ college.city }}, {{ college.district }}, Tamil Nadu</p>
-    <p class="profile-description">{{ college.description }}</p>
-  </div>
-</section>
+<section class="profile-hero"><div class="container"><a class="back-link" href="/colleges">← Back to directory</a><div class="profile-label">{{ college.stream_name }} · COLLEGE PROFILE</div><h1>{{ college.name }}</h1><p class="profile-location">⌖ {{ college.city }}, {{ college.district }}, Tamil Nadu</p><p class="profile-description">{{ college.description }}</p><div class="profile-actions"><button type="button" class="favorite-toggle" data-favorite-id="{{ college.id }}" aria-pressed="false">♡ Save college</button><button type="button" class="compare-toggle" data-compare-id="{{ college.id }}">Add to compare</button></div><div class="profile-status">{% with status=college.information_status %}{% include 'status_badge.html' %}{% endwith %}<span>This is a fictional sample record. No details are represented as verified.</span></div></div></section>
 <section class="container profile-layout">
   <div class="profile-main">
-    <section class="panel">
-      <div class="eyebrow">OVERVIEW</div>
-      <h2>About this college</h2>
-      <p class="overview-copy">{{ college.description }}</p>
-      <div class="profile-facts"><span><small>Education stream</small><strong>{{ college.stream_name }}</strong></span><span><small>Location</small><strong>{{ college.city }}, {{ college.district }}</strong></span></div>
-    </section>
-    <section class="panel">
-      <div class="panel-heading"><div><div class="eyebrow">PROGRAMMES</div><h2>Courses</h2></div><span class="pill">Sample information</span></div>
-      {% if courses %}<div class="course-list">{% for c in courses %}<div class="course-row"><span class="course-icon" aria-hidden="true">✳</span><div><strong>{{ c.name }}</strong><small>{{ c.level }} · {{ c.duration }}</small></div></div>{% endfor %}</div>{% else %}<p class="muted">No sample courses listed.</p>{% endif %}
-    </section>
-    <section class="panel">
-      <div class="eyebrow">CAMPUS LIFE</div><h2>Facilities</h2>
-      {% if facilities %}<div class="facility-list">{% for f in facilities %}<span>{{ f.label }}</span>{% endfor %}</div>{% else %}<p class="muted">No sample facilities listed.</p>{% endif %}
-    </section>
-    <section class="panel location-panel">
-      <div class="eyebrow">LOCATION</div><h2>Find the campus</h2>
-      <p><span aria-hidden="true">⌖</span> {{ college.city }}, {{ college.district }}, Tamil Nadu</p>
-    </section>
+    <section class="panel" id="overview"><div class="eyebrow">OVERVIEW</div><h2>About this sample record</h2><p class="overview-copy">{{ college.description }}</p><div class="profile-facts"><span><small>Stream</small><strong>{{ college.stream_name }}</strong></span><span><small>District</small><strong>{{ college.district }}</strong></span><span><small>Category</small><strong>{{ college.category or 'Not provided' }}</strong></span><span><small>Ownership</small><strong>{{ college.ownership or 'Not provided' }}</strong></span></div></section>
+    <section class="panel" id="courses"><div class="panel-heading"><div><div class="eyebrow">PROGRAMMES</div><h2>Courses</h2></div></div>{% if courses %}<div class="course-list">{% for course in courses %}<div class="course-row"><span class="course-icon">✳</span><div><strong>{{ course.name }}</strong><small>{{ course.level or 'Level not provided' }}{% if course.duration %} · {{ course.duration }}{% endif %}</small>{% with status=course.verification_status %}{% include 'status_badge.html' %}{% endwith %}{% if course.source_url %}<a class="source-link" href="{{ course.source_url }}" target="_blank" rel="noopener noreferrer">{{ course.source_name or 'Source' }} ↗</a>{% endif %}{% if course.academic_year or course.last_verified %}<small>{{ course.academic_year or 'Academic year not provided' }} · Last verified: {{ course.last_verified or 'Not recorded' }}</small>{% endif %}</div></div>{% endfor %}</div>{% else %}<p class="empty-info">No courses are listed for this sample record.</p>{% endif %}</section>
+    <section class="panel" id="fees"><div class="eyebrow">FEES</div><h2>Fee information</h2>{% if fees %}{% for fee in fees %}<div class="data-row"><strong>{{ fee.fee_type or 'Fee' }}{% if fee.course_name %} · {{ fee.course_name }}{% endif %}</strong><span>{{ fee.amount if fee.amount is not none else 'Amount not provided' }} · {{ fee.academic_year or 'Academic year not provided' }}</span>{% with status=fee.verification_status %}{% include 'status_badge.html' %}{% endwith %}</div>{% endfor %}{% else %}<p class="empty-info">No fee information is available. Contact the college for current amounts.</p>{% endif %}</section>
+    <section class="panel" id="cutoffs"><div class="eyebrow">ADMISSIONS</div><h2>Cutoffs</h2>{% if cutoffs %}{% for cutoff in cutoffs %}<div class="data-row"><strong>{{ cutoff.course_name or 'Course not specified' }} · {{ cutoff.quota or 'Quota not specified' }}</strong><span>{{ cutoff.cutoff_value or 'Value not provided' }} · {{ cutoff.academic_year or 'Academic year not provided' }}</span>{% with status=cutoff.verification_status %}{% include 'status_badge.html' %}{% endwith %}</div>{% endfor %}{% else %}<p class="empty-info">No verified cutoff records are available. Review current official counselling notices.</p>{% endif %}</section>
+    <section class="panel" id="facilities"><div class="eyebrow">CAMPUS LIFE</div><h2>Facilities</h2>{% if facilities %}<div class="facility-list">{% for facility in facilities %}<span>{{ facility.label }}{% with status=facility.verification_status %}{% include 'status_badge.html' %}{% endwith %}</span>{% endfor %}</div>{% else %}<p class="empty-info">No facility information is listed for this sample record.</p>{% endif %}</section>
+    <section class="panel" id="hostel"><div class="eyebrow">ACCOMMODATION</div><h2>Hostel information</h2>{% if hostels %}{% for hostel in hostels %}<div class="data-row"><p>{{ hostel.details or 'Details not provided' }}</p><span>{{ hostel.academic_year or 'Academic year not provided' }}</span>{% with status=hostel.verification_status %}{% include 'status_badge.html' %}{% endwith %}</div>{% endfor %}{% else %}<p class="empty-info">Hostel availability and charges have not been verified. Contact the college directly.</p>{% endif %}</section>
+    <section class="panel" id="sources"><div class="eyebrow">SOURCES</div><h2>Official information</h2>{% if college.official_website %}<a class="source-link" href="{{ college.official_website }}" target="_blank" rel="noopener noreferrer">Visit college website ↗</a>{% else %}<p class="empty-info">An official college website is not provided in this sample record.</p>{% endif %}{% for source in sources %}<div class="source-record"><strong>{{ source.source_name }}</strong>{% if source.source_url %}<a href="{{ source.source_url }}" target="_blank" rel="noopener noreferrer">Open source ↗</a>{% endif %}<span>{{ source.academic_year or 'Academic year not provided' }} · Last verified: {{ source.last_verified or 'Not recorded' }}</span>{% with status=source.verification_status %}{% include 'status_badge.html' %}{% endwith %}</div>{% endfor %}</section>
   </div>
-  <aside class="profile-side">
-    <div class="notice-card"><span class="notice-icon" aria-hidden="true">ⓘ</span><h2>Sample profile</h2><p>This page uses fictional sample data for demonstration. It does not represent a real institution.</p></div>
-    <div class="side-card"><div class="eyebrow">A QUESTION ON YOUR MIND?</div><h2>Ask CollegeHub</h2><p>Try the demo guide for general questions about college exploration.</p><a class="button-primary full" href="/chat">Open the guide <span aria-hidden="true">→</span></a></div>
-  </aside>
+  <aside class="profile-side"><div class="notice-card"><span class="notice-icon">ⓘ</span><h2>Sample record</h2><p>All college records are fictional demo data. Missing details are shown as unavailable, not estimated.</p></div><div class="side-card"><div class="eyebrow">GENERAL ADMISSION GUIDANCE</div><h2>{{ college.stream_name }}</h2><p>Review the stream page for general process information and official source links.</p><a class="button-primary full" href="/college/{{ college.stream_slug }}">Open stream information →</a></div></aside>
 </section>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/college.js') }}"></script>{% endblock %}

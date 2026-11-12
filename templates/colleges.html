@@ -1,46 +1,29 @@
 {% extends "base.html" %}
-{% block title %}Explore colleges · CollegeHub{% endblock %}
+{% block title %}College directory · CollegeHub{% endblock %}
 {% block content %}
-<section class="page-hero">
-  <div class="container">
-    <div class="eyebrow">THE COLLEGE DIRECTORY</div>
-    <h1>Explore your <em>options.</em></h1>
-    <p>Find a starting point by searching colleges, or narrow the sample directory by stream and district.</p>
-  </div>
-</section>
+<section class="page-hero"><div class="container"><a class="back-link" href="/college">← College streams</a><div class="eyebrow">COLLEGE DIRECTORY</div><h1>Find colleges to <em>explore.</em></h1><p>Search existing sample records and narrow results using available college information.</p></div></section>
 <section class="container directory-wrap">
-  <form class="filter-bar" method="get" action="/colleges">
-    <label class="filter-search">
-      <span class="search-icon" aria-hidden="true">⌕</span>
-      <input name="q" value="{{ q }}" placeholder="College, city or district" aria-label="Search college, city or district">
-    </label>
-    <label class="filter-select"><span class="sr-only">Filter by stream</span>
-      <select name="stream"><option value="">All streams</option>{% for s in streams %}<option value="{{ s.slug }}" {% if selected_stream==s.slug %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select>
-    </label>
-    <label class="filter-select"><span class="sr-only">Filter by district</span>
-      <select name="district"><option value="">All districts</option>{% for d in districts %}<option value="{{ d.district }}" {% if selected_district==d.district %}selected{% endif %}>{{ d.district }}</option>{% endfor %}</select>
-    </label>
-    <button class="button-primary" type="submit">Search colleges <span aria-hidden="true">→</span></button>
+  <form class="filter-bar enhanced-filter" method="get" action="/colleges" id="collegeSearchForm">
+    <label class="filter-search"><span class="search-icon" aria-hidden="true">⌕</span><input name="q" value="{{ q }}" placeholder="College, city or district" aria-label="Search college, city or district"></label>
+    <select name="stream" aria-label="Filter by stream"><option value="">All streams</option>{% for s in streams %}<option value="{{ s.slug }}" {% if selected_stream==s.slug %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select>
+    <select name="district" aria-label="Filter by district"><option value="">All districts</option>{% for d in districts %}<option value="{{ d.district }}" {% if selected_district==d.district %}selected{% endif %}>{{ d.district }}</option>{% endfor %}</select>
+    <select name="course" aria-label="Filter by course"><option value="">All courses</option>{% for course_item in courses %}<option value="{{ course_item.name }}" {% if selected_course==course_item.name %}selected{% endif %}>{{ course_item.name }}</option>{% endfor %}</select>
+    <select name="category" aria-label="Filter by college category"><option value="">All categories</option><option value="University" {% if selected_category=='University' %}selected{% endif %}>University</option><option value="Autonomous" {% if selected_category=='Autonomous' %}selected{% endif %}>Autonomous</option><option value="College" {% if selected_category=='College' %}selected{% endif %}>College</option>{% for value in categories %}<option value="{{ value.category }}" {% if selected_category==value.category %}selected{% endif %}>{{ value.category }}</option>{% endfor %}</select>
+    <select name="ownership" aria-label="Filter by ownership"><option value="">Government/private</option><option value="Government" {% if selected_ownership=='Government' %}selected{% endif %}>Government</option><option value="Aided" {% if selected_ownership=='Aided' %}selected{% endif %}>Aided</option><option value="Private" {% if selected_ownership=='Private' %}selected{% endif %}>Private</option></select>
+    <select name="fee_range" aria-label="Filter by fee range"><option value="">Any fee / not listed</option><option value="under-50000" {% if selected_fee_range=='under-50000' %}selected{% endif %}>Under ₹50,000</option><option value="50000-100000" {% if selected_fee_range=='50000-100000' %}selected{% endif %}>₹50,000–₹1,00,000</option><option value="over-100000" {% if selected_fee_range=='over-100000' %}selected{% endif %}>Over ₹1,00,000</option></select>
+    <select name="hostel" aria-label="Filter by hostel availability"><option value="">Any hostel status</option><option value="yes" {% if selected_hostel=='yes' %}selected{% endif %}>Hostel available</option><option value="no" {% if selected_hostel=='no' %}selected{% endif %}>No hostel</option></select>
+    <select name="sort" aria-label="Sort colleges"><option value="featured" {% if sort=='featured' %}selected{% endif %}>Featured</option><option value="name" {% if sort=='name' %}selected{% endif %}>Name A–Z</option><option value="district" {% if sort=='district' %}selected{% endif %}>District</option></select>
+    <button class="button-primary" type="submit">Apply filters <span aria-hidden="true">→</span></button>
   </form>
-  <div class="results-head"><strong>{{ colleges|length }} sample result{% if colleges|length != 1 %}s{% endif %}</strong><span>Fictional demonstration records</span></div>
-  {% if colleges %}
-  <div class="college-grid directory-grid">
-    {% for c in colleges %}
-    <article class="college-card">
-      <div class="college-banner"><span>{{ c.stream_name }}</span><span class="demo-label">SAMPLE</span><span class="banner-initial" aria-hidden="true">{{ c.stream_name[0] }}</span></div>
-      <div class="college-body">
-        <div class="location"><span aria-hidden="true">⌖</span> {{ c.city }}, {{ c.district }}</div>
-        <h3>{{ c.name }}</h3>
-        <p>{{ c.description }}</p>
-        {% if c.course_names %}<div class="course-preview"><strong>Courses</strong><span>{{ c.course_names }}</span></div>{% endif %}
-        <a class="text-link" href="/colleges/{{ c.id }}">View college details <span aria-hidden="true">→</span></a>
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="empty-state"><div aria-hidden="true">⌕</div><h2>No matching sample colleges</h2><p>Try a different search or adjust your filters.</p><a class="button-primary" href="/colleges">Clear filters</a></div>
-  {% endif %}
-  <p class="directory-disclaimer">College and course information is sample data for demonstration only. Verify current details with official sources.</p>
+  <div class="directory-toolbar"><div class="results-head"><strong>{{ total }} sample college{% if total != 1 %}s{% endif %}</strong><span>Sample information · verify details with official sources</span></div><a class="compare-shortcut" href="/compare">Compare selected <span id="compareCount">0</span></a></div>
+  {% if colleges %}<div class="college-grid directory-grid">{% for c in colleges %}{% include 'college_card.html' %}{% endfor %}</div>
+  <nav class="pagination" aria-label="Directory pages">
+    {% if page > 1 %}<a href="{{ url_for('colleges', q=q, stream=selected_stream, district=selected_district, course=selected_course, category=selected_category, ownership=selected_ownership, fee_range=selected_fee_range, hostel=selected_hostel, sort=sort, page=page-1) }}">← Previous</a>{% else %}<span></span>{% endif %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    {% if page < pages %}<a href="{{ url_for('colleges', q=q, stream=selected_stream, district=selected_district, course=selected_course, category=selected_category, ownership=selected_ownership, fee_range=selected_fee_range, hostel=selected_hostel, sort=sort, page=page+1) }}">Next →</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% else %}<div class="empty-state"><div aria-hidden="true">⌕</div><h2>No matching sample colleges</h2><p>Try changing a filter, or clear the search to see all records.</p><a class="button-primary" href="/colleges">Clear filters</a></div>{% endif %}
+  <p class="directory-disclaimer">Filters show only information present in the sample database. Missing fee, category or hostel details are not inferred.</p>
 </section>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/college.js') }}"></script>{% endblock %}

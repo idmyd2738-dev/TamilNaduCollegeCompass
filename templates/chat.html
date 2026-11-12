@@ -1,45 +1,25 @@
 {% extends "base.html" %}
-{% block title %}CollegeHub guide · CollegeHub{% endblock %}
+{% block title %}CollegeHub chatbot{% endblock %}
 {% block content %}
 <section class="chat-shell" id="chatApp">
   <aside class="chat-sidebar" id="chatSidebar" aria-label="Conversation history">
-    <div class="sidebar-heading">
-      <a class="chat-brand" href="/"><span class="chat-brand-mark" aria-hidden="true">C</span><span>CollegeHub<small>COLLEGE GUIDE</small></span></a>
-      <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Close conversation history">×</button>
-    </div>
-    <button class="new-chat-button" id="newChatButton" type="button"><span aria-hidden="true">＋</span> New chat</button>
-    <div class="history-heading">RECENT CONVERSATIONS</div>
-    <div class="conversation-list" id="conversationList" aria-live="polite"></div>
-    <div class="sidebar-note"><span aria-hidden="true">ⓘ</span><p>Demo guide only. Conversations are kept in this tab and are not saved.</p></div>
+    <div class="sidebar-heading"><a class="chat-brand" href="/"><span class="chat-brand-mark">C</span><span>CollegeHub</span></a><button class="sidebar-close" id="sidebarClose" type="button" aria-label="Close conversation history">×</button></div>
+    <button class="new-chat-button" id="newChatButton" type="button"><span>＋</span> New chat</button>
+    <button class="clear-chat-button" id="clearChatButton" type="button">Clear conversation</button>
+    <div class="history-heading">RECENT CONVERSATIONS</div><div class="conversation-list" id="conversationList" aria-live="polite"></div>
+    <div class="sidebar-note">Demo conversation history is stored in this browser only.</div>
   </aside>
   <div class="chat-backdrop" id="chatBackdrop"></div>
   <section class="chat-workspace">
-    <header class="chat-workspace-header">
-      <button class="history-toggle" id="historyToggle" type="button" aria-label="Open conversation history"><span></span><span></span><span></span></button>
-      <div class="workspace-title"><span class="assistant-avatar" aria-hidden="true">C</span><span><strong>CollegeHub guide</strong><small><span class="online-dot"></span> Demo mode · predefined responses</small></span></div>
-      <span class="demo-badge">DEMO</span>
-    </header>
+    <header class="chat-workspace-header"><button class="history-toggle" id="historyToggle" type="button" aria-label="Open conversation history"><span></span><span></span><span></span></button><div class="workspace-title"><span class="assistant-avatar">C</span><span><strong>CollegeHub chatbot</strong><small><span class="online-dot"></span>Predefined demo responses</small></span></div><span class="demo-badge">DEMO</span></header>
     <div class="chat-scroll-area" id="chatScrollArea">
-      <div class="welcome-screen" id="chatWelcome">
-        <div class="welcome-mark" aria-hidden="true">C</div>
-        <div class="eyebrow">YOUR COLLEGEHUB GUIDE</div>
-        <h1>Where would you<br>like to <em>begin?</em></h1>
-        <p>Ask a general question about exploring colleges, courses or admissions.</p>
-        <div class="suggestions">
-          <button type="button">What about engineering?</button>
-          <button type="button">How do admissions work?</button>
-          <button type="button">Are hostel facilities available?</button>
-        </div>
+      <div class="welcome-screen" id="chatWelcome"><div class="welcome-mark">C</div><div class="eyebrow">COLLEGEHUB CHATBOT · DEMO</div><h1>Ask <em>anything?</em></h1><p>Try a question about counselling, courses, eligibility, fees, cutoffs, facilities or hostel information.</p>
+        <div class="faq-list"><strong>Frequently asked</strong>{% for faq in faqs %}<details><summary>{{ faq.question }}</summary><p>{{ faq.answer }}</p>{% if faq.source_url %}<a href="{{ faq.source_url }}" target="_blank" rel="noopener noreferrer">{{ faq.source_name or 'Source' }} ↗</a>{% endif %}{% with status=faq.verification_status %}{% include 'status_badge.html' %}{% endwith %}</details>{% endfor %}</div>
+        <div class="suggestions"><button type="button">How does counselling work?</button><button type="button">Tell me about fees</button><button type="button">Are hostel facilities available?</button></div>
       </div>
       <div id="chatMessages" class="chat-messages" aria-live="polite" aria-label="Chat messages"></div>
     </div>
-    <div class="composer-area">
-      <form id="chatForm" class="chat-input">
-        <input id="chatInput" placeholder="Ask CollegeHub a question..." autocomplete="off" aria-label="Your question">
-        <button type="submit" aria-label="Send message"><span aria-hidden="true">↑</span></button>
-      </form>
-      <div class="chat-foot">CollegeHub may give incorrect information. Responses are examples, not official admission guidance. Messages are not saved.</div>
-    </div>
+    <div class="composer-area"><form id="chatForm" class="chat-input"><input id="chatInput" placeholder="Ask anything?" autocomplete="off" aria-label="Ask anything?"><button type="submit" aria-label="Send message"><span>↑</span></button></form><div class="chat-foot">Predefined responses only · Verify current details with the official source · Conversations stay in this browser.</div></div>
   </section>
 </section>
 {% endblock %}

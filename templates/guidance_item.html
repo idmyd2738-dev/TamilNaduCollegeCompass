@@ -1,0 +1,6 @@
+<article class="guidance-card">
+  <div class="guidance-card-head"><h3>{{ item.heading }}</h3>{% with status=item.verification_status %}{% include 'status_badge.html' %}{% endwith %}</div>
+  <p>{{ item.content }}</p>
+  {% if item.source_name and item.source_url %}<a class="source-link" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ item.source_name }} official site ↗</a>{% endif %}
+  {% if item.academic_year %}<small class="record-meta">Academic year: {{ item.academic_year }}</small>{% endif %}
+</article>

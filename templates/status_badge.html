@@ -1,0 +1,6 @@
+<span class="status-badge status-{{ status }}">
+  {% if status == 'verified' %}Verified
+  {% elif status == 'pending_verification' %}Pending verification
+  {% elif status == 'outdated' %}Outdated
+  {% else %}Information not yet verified{% endif %}
+</span>

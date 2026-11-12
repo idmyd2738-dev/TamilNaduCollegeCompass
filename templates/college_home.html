@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Choose a college stream · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero college-page-hero"><div class="container"><div class="eyebrow">COLLEGE EXPLORER</div><h1>Choose a stream.<br><em>Explore what comes next.</em></h1><p>Start with a field of interest to find stream-specific guidance and sample college records.</p></div></section>
+<section class="container section college-stream-page">
+  <div class="college-stream-grid">{% for stream in streams %}
+    <a class="college-stream-tile" href="/college/{{ stream.slug }}"><span class="stream-icon">{{ stream.icon }}</span><span class="stream-count">{{ stream.college_count }} sample colleges</span><h2>{{ stream.name }}</h2><span class="text-link">Explore this stream →</span></a>
+  {% endfor %}</div>
+  <div class="prototype-note"><strong>Sample information</strong><span>All college records in this prototype are fictional. Admission details are labelled with verification status; confirm current requirements with the linked official source.</span></div>
+</section>
+{% endblock %}

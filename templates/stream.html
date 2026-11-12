@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ stream.name }} · CollegeHub{% endblock %}
+{% block content %}
+<section class="stream-hero"><div class="container"><a class="back-link" href="/college">← All college streams</a><div class="stream-hero-title"><span class="stream-icon">{{ stream.icon }}</span><div><div class="eyebrow">COLLEGE STREAM</div><h1>{{ stream.name }}</h1></div></div><p>Explore general admission guidance and sample college records. Check linked official sources for current requirements.</p></div></section>
+<section class="container stream-content">
+  <div class="tab-list" role="tablist" aria-label="Stream information">
+    <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab-target="overview">Overview</button>
+    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="counselling">Counselling</button>
+    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="entrance">Entrance examinations</button>
+    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="eligibility">Eligibility</button>
+    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="directory">College directory</button>
+    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="fees">Fees</button>
+    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="cutoffs">Cutoffs</button>
+    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="facilities">Facilities</button>
+    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="hostel">Hostel information</button>
+    {% if stream.slug == 'agriculture' %}<button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="fisheries">Fisheries</button>{% endif %}
+  </div>
+  <div class="tab-panel active" id="overview" role="tabpanel">
+    <div class="stream-info-card"><div class="eyebrow">A STARTING POINT</div><h2>{{ stream.name }} in Tamil Nadu</h2><p>Explore the guidance tabs for this stream and browse the existing sample college records. Information is not presented as current official advice.</p>{% for item in guidance if item.category == 'overview' %}{% include 'guidance_item.html' %}{% endfor %}<a class="button-primary" href="/colleges?stream={{ stream.slug }}">Browse {{ stream.name }} colleges →</a></div>
+  </div>
+  <div class="tab-panel" id="counselling" role="tabpanel" hidden><div class="guidance-grid">{% for item in guidance if item.category == 'counselling' %}{% include 'guidance_item.html' %}{% else %}<p class="empty-info">No counselling details are listed for this stream in the demo.</p>{% endfor %}</div></div>
+  <div class="tab-panel" id="entrance" role="tabpanel" hidden><div class="guidance-grid">{% for item in guidance if item.category == 'entrance_examinations' %}{% include 'guidance_item.html' %}{% else %}<p class="empty-info">No entrance-examination details are listed for this stream in the demo.</p>{% endfor %}</div></div>
+  <div class="tab-panel" id="eligibility" role="tabpanel" hidden><div class="guidance-grid">{% for item in guidance if item.category == 'eligibility' %}{% include 'guidance_item.html' %}{% else %}<p class="empty-info">No eligibility details are listed for this stream in the demo.</p>{% endfor %}</div></div>
+  <div class="tab-panel" id="directory" role="tabpanel" hidden><div class="college-grid stream-college-grid">{% for c in colleges %}{% include 'college_card.html' %}{% else %}<p class="empty-info">No sample colleges are listed for this stream.</p>{% endfor %}</div><a class="text-link" href="/colleges?stream={{ stream.slug }}">Open the full directory →</a></div>
+  <div class="tab-panel" id="fees" role="tabpanel" hidden><div class="empty-info">No verified fee records are available for this stream. Contact each institution and review official information for the relevant academic year.</div></div>
+  <div class="tab-panel" id="cutoffs" role="tabpanel" hidden><div class="empty-info">No verified cutoff records are available for this stream. Historical cutoffs are not predictions; check current official counselling notices.</div></div>
+  <div class="tab-panel" id="facilities" role="tabpanel" hidden><div class="empty-info">Facility information is shown only when available in a college profile. Records in this demo are unverified samples.</div></div>
+  <div class="tab-panel" id="hostel" role="tabpanel" hidden><div class="empty-info">No verified hostel availability or fee details are published in this demo. Contact the institution directly.</div></div>
+  {% if stream.slug == 'agriculture' %}<div class="tab-panel" id="fisheries" role="tabpanel" hidden><div class="guidance-grid">{% for item in guidance if item.category == 'fisheries' %}{% include 'guidance_item.html' %}{% endfor %}</div></div>{% endif %}
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/college.js') }}"></script>{% endblock %}

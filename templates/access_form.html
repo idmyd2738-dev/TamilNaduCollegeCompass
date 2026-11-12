@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% if mode == 'student_login' %}{% set page_title = 'Student login' %}{% elif mode == 'student_register' %}{% set page_title = 'Student registration' %}{% else %}{% set page_title = 'Admin login' %}{% endif %}
+{% block title %}{{ page_title }} · CollegeHub{% endblock %}
+{% block content %}
+<section class="access-page">
+  <a class="back-link" href="/login">← Back to portal selection</a>
+  <div class="access-card">
+    <div class="eyebrow">{{ page_title|upper }} · DEMO MODE</div>
+    <h1>{{ page_title }}</h1>
+    <p class="access-disclaimer">Demo only: credentials are not checked or stored. Do not enter a real password.</p>
+    {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    {% if mode == 'student_register' %}
+    <form method="post" action="/student/register" class="access-form">
+      <label>Name<input name="name" autocomplete="name" required></label>
+      <label>Email<input type="email" name="email" autocomplete="email" required></label>
+      <label>Password<input type="password" name="password" autocomplete="new-password" required><button class="password-toggle" type="button" data-password-toggle>Show</button></label>
+      <label>Confirm password<input type="password" name="confirm_password" autocomplete="new-password" required></label>
+      <button class="button-primary" type="submit">Create demo profile →</button>
+    </form>
+    {% else %}
+    <form method="post" action="{% if mode == 'student_login' %}/student/login{% else %}/admin/login{% endif %}" class="access-form">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <label>{% if mode == 'admin_login' %}Admin email{% else %}Email or student ID{% endif %}<input name="email" autocomplete="username" required></label>
+      <label>Password<input type="password" name="password" autocomplete="current-password"><button class="password-toggle" type="button" data-password-toggle>Show</button></label>
+      {% if mode == 'student_login' %}<label class="remember-label"><input type="checkbox" name="remember"> Remember me on this device</label>{% endif %}
+      <button class="button-primary" type="submit">Continue to demo →</button>
+    </form>
+    {% endif %}
+    {% if mode == 'student_login' %}<a class="text-link access-link" href="/student/register">Create a student demo profile</a>{% endif %}
+  </div>
+</section>
+{% endblock %}
