@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ college.name }} · College Compass{% endblock %}
+{% block content %}
+<section class="profile-hero"><div class="container"><a class="back-link" href="/colleges">← Back to directory</a><div class="profile-label">{{ college.stream_name }} <span>·</span> SAMPLE PROFILE</div><h1>{{ college.name }}</h1><p class="profile-location">⌖ {{ college.city }}, {{ college.district }}, Tamil Nadu</p><p class="profile-description">{{ college.description }}</p></div></section>
+<section class="container profile-layout"><div class="profile-main"><div class="panel"><div class="panel-heading"><div><div class="eyebrow">PROGRAMMES</div><h2>Sample courses</h2></div><span class="pill">Illustrative only</span></div>{% if courses %}<div class="course-list">{% for c in courses %}<div class="course-row"><span class="course-icon">✳</span><div><strong>{{ c.name }}</strong><small>{{ c.level }} · {{ c.duration }}</small></div></div>{% endfor %}</div>{% else %}<p class="muted">No sample courses listed.</p>{% endif %}</div>
+<div class="panel"><div class="eyebrow">CAMPUS LIFE</div><h2>Facilities overview</h2><div class="facility-list">{% for f in facilities %}<span>✓ {{ f.label }}</span>{% endfor %}</div></div></div>
+<aside class="profile-side"><div class="notice-card"><span class="notice-icon">ⓘ</span><h3>Demo information</h3><p>This profile uses fictional sample data. It does not represent a real institution.</p></div><div class="side-card"><div class="eyebrow">NEED MORE CONTEXT?</div><h3>Ask Compass</h3><p>Try the demo assistant for general questions about college exploration.</p><a class="button-primary full" href="/chat">Open assistant →</a></div></aside></section>
+{% endblock %}

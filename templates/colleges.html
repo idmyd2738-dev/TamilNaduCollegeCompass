@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Explore colleges · College Compass{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><div class="eyebrow">THE DIRECTORY</div><h1>Explore your <em>options.</em></h1><p>Search the sample directory by institution, city or stream.</p></div></section>
+<section class="container directory-wrap">
+<form class="filter-bar" method="get" action="/colleges"><div class="filter-search"><span>⌕</span><input name="q" value="{{ q }}" placeholder="College, city or district"></div><select name="stream" aria-label="Filter by stream"><option value="">All streams</option>{% for s in streams %}<option value="{{ s.slug }}" {% if selected_stream==s.slug %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select><button class="button-primary">Search colleges →</button></form>
+<div class="results-head"><strong>{{ colleges|length }} sample result{% if colleges|length != 1 %}s{% endif %}</strong><span>Fictional demo records</span></div>
+{% if colleges %}<div class="college-grid directory-grid">{% for c in colleges %}<article class="college-card"><div class="college-banner"><span>{{ c.stream_name }}</span><b>DEMO</b><div class="banner-symbol">✳</div></div><div class="college-body"><div class="location">⌖ {{ c.city }}, {{ c.district }}</div><h3>{{ c.name }}</h3><p>{{ c.description }}</p><a class="text-link" href="/colleges/{{ c.id }}">View sample profile ↗</a></div></article>{% endfor %}</div>{% else %}<div class="empty-state"><div>⌕</div><h3>No matching sample colleges</h3><p>Try a different search term or remove the stream filter.</p><a class="button-primary" href="/colleges">Clear filters</a></div>{% endif %}
+</section>
+{% endblock %}

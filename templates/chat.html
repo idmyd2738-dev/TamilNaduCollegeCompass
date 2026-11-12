@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Ask Compass · College Compass{% endblock %}
+{% block content %}
+<section class="page-hero compact"><div class="container"><div class="eyebrow">YOUR DEMO GUIDE</div><h1>Ask <em>Compass.</em></h1><p>Try sample questions about streams, admissions and college exploration.</p></div></section>
+<section class="container chat-wrap"><div class="chat-panel"><div class="chat-top"><div class="assistant-avatar">✳</div><div><strong>Compass Assistant</strong><small><span class="online-dot"></span> Demo mode · predefined responses</small></div><span class="demo-badge">DEMO</span></div><div id="chatMessages" class="chat-messages"><div class="message assistant"><span class="message-avatar">✳</span><div><small>COMPASS</small><p>Hello! I'm the College Compass demo assistant. What would you like to explore?</p></div></div></div><div class="suggestions"><button type="button">What about engineering?</button><button type="button">How do admissions work?</button><button type="button">Are hostel facilities available?</button></div><form id="chatForm" class="chat-input"><input id="chatInput" placeholder="Type your question..." autocomplete="off" aria-label="Your question"><button aria-label="Send message">↑</button></form><div class="chat-foot">Demo assistant · Messages are not saved.</div></div><p class="disclaimer centered">Responses are predefined examples, not official admission guidance.</p></section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/chat.js') }}"></script>{% endblock %}

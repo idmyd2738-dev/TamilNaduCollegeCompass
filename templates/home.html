@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Discover colleges with clarity · College Compass{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="hero-glow"></div><div class="container hero-grid">
+    <div class="hero-copy"><div class="eyebrow"><span class="pulse"></span> YOUR COLLEGE JOURNEY, SIMPLIFIED</div>
+      <h1>Find a college that<br><em>fits your future.</em></h1>
+      <p class="hero-sub">Explore institutions across Tamil Nadu, compare your options and make your next step with more clarity.</p>
+      <form class="hero-search" action="/colleges" method="get"><span>⌕</span><input name="q" placeholder="Search college, city or district..." aria-label="Search colleges"><button>Explore <b>→</b></button></form>
+      <div class="hero-note"><span>✦</span> Explore four education streams in one place</div>
+    </div>
+    <div class="hero-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-card card-main"><div class="mini-label">YOUR NEXT CHAPTER</div><div class="compass-illustration">✳</div><strong>Explore beyond<br>the familiar.</strong><span>Discover · Compare · Decide</span></div><div class="float-tag tag-top">↗ 4 streams</div><div class="float-tag tag-bottom">⌖ Tamil Nadu</div></div>
+  </div>
+</section>
+<section class="container section stream-section">
+  <div class="section-head"><div><div class="eyebrow">START EXPLORING</div><h2>Choose your <em>direction.</em></h2></div><a class="text-link" href="/colleges">View all colleges ↗</a></div>
+  <div class="stream-grid">
+    {% for s in streams %}<a class="stream-card" href="/colleges?stream={{ s.slug }}"><span class="stream-icon">{{ s.icon }}</span><span class="stream-count">{{ s.college_count }} demo colleges</span><h3>{{ s.name }}</h3><span class="card-arrow">↗</span></a>{% endfor %}
+  </div>
+</section>
+<section class="feature-band"><div class="container feature-inner"><div><div class="eyebrow light">A CLEARER WAY TO EXPLORE</div><h2>Less searching.<br><em>More direction.</em></h2></div><div class="feature-points"><div><b>01</b><span><strong>Explore</strong><small>Browse by education stream.</small></span></div><div><b>02</b><span><strong>Understand</strong><small>Review sample profiles and courses.</small></span></div><div><b>03</b><span><strong>Ask</strong><small>Try the guided demo assistant.</small></span></div></div></div></section>
+<section class="container section"><div class="section-head"><div><div class="eyebrow">DEMO SPOTLIGHT</div><h2>Places to <em>discover.</em></h2></div><a class="text-link" href="/colleges">Browse directory ↗</a></div><div class="college-grid">{% for c in featured %}<article class="college-card"><div class="college-banner"><span>{{ c.stream_name }}</span><b>DEMO</b><div class="banner-symbol">✳</div></div><div class="college-body"><div class="location">⌖ {{ c.city }}, {{ c.district }}</div><h3>{{ c.name }}</h3><p>{{ c.description }}</p><a class="text-link" href="/colleges/{{ c.id }}">View sample profile ↗</a></div></article>{% endfor %}</div><p class="disclaimer">All institutions and information shown are fictional sample records created for demonstration.</p></section>
+{% endblock %}

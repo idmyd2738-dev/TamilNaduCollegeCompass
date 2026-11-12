@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ site_name }}{% endblock %}</title>
+  <meta name="description" content="A demonstration college discovery platform for Tamil Nadu.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="brand-mark">CC</span><span>College<span class="brand-light">Compass</span><small>TAMIL NADU · DEMO</small></span></a>
+  <button class="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+  <nav class="nav-links">
+    <a href="/">Home</a><a href="/colleges">Explore colleges</a><a href="/chat">Ask Compass</a><a href="/about">About</a>
+    <a class="nav-cta" href="/colleges">Explore now <span>↗</span></a>
+  </nav>
+</header>
+<main>{% block content %}{% endblock %}</main>
+<footer class="footer"><div><strong>Tamil Nadu College Compass</strong><p>A demonstration prototype. Sample information is fictional and not official admission advice.</p></div><span>Built for UI testing · Demo data only</span></footer>
+<script src="{{ url_for('static', filename='js/site.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body></html>
