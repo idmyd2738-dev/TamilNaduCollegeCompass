@@ -18,7 +18,7 @@ def get_db():
 
 @app.context_processor
 def inject_globals():
-    return {"site_name": "Tamil Nadu College Compass"}
+    return {"site_name": "CollegeHub"}
 
 @app.get("/")
 def home():
@@ -29,7 +29,8 @@ def home():
             GROUP BY s.id ORDER BY s.id
         """).fetchall()
         featured = db.execute("""
-            SELECT c.*, s.name AS stream_name, s.slug AS stream_slug
+            SELECT c.*, s.name AS stream_name, s.slug AS stream_slug,
+                   (SELECT GROUP_CONCAT(name, ', ') FROM courses WHERE college_id=c.id) AS course_names
             FROM colleges c JOIN streams s ON s.id=c.stream_id
             ORDER BY c.featured DESC, c.name LIMIT 3
         """).fetchall()
@@ -39,18 +40,25 @@ def home():
 def colleges():
     q = request.args.get("q", "").strip()
     stream = request.args.get("stream", "").strip()
+    district = request.args.get("district", "").strip()
     with closing(get_db()) as db:
         streams = db.execute("SELECT * FROM streams ORDER BY name").fetchall()
+        districts = db.execute("SELECT DISTINCT district FROM colleges ORDER BY district").fetchall()
         sql = """
-            SELECT c.*, s.name AS stream_name, s.slug AS stream_slug
+            SELECT c.*, s.name AS stream_name, s.slug AS stream_slug,
+                   (SELECT GROUP_CONCAT(name, ', ') FROM courses WHERE college_id=c.id) AS course_names
             FROM colleges c JOIN streams s ON s.id=c.stream_id
             WHERE (?='' OR c.name LIKE ? OR c.city LIKE ? OR c.district LIKE ?)
               AND (?='' OR s.slug=?)
+              AND (?='' OR c.district=?)
             ORDER BY c.featured DESC, c.name
         """
         like = f"%{q}%"
-        rows = db.execute(sql, (q, like, like, like, stream, stream)).fetchall()
-    return render_template("colleges.html", colleges=rows, streams=streams, q=q, selected_stream=stream)
+        rows = db.execute(sql, (q, like, like, like, stream, stream, district, district)).fetchall()
+    return render_template(
+        "colleges.html", colleges=rows, streams=streams, districts=districts,
+        q=q, selected_stream=stream, selected_district=district
+    )
 
 @app.get("/colleges/<int:college_id>")
 def college_detail(college_id):
