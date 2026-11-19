@@ -1,3 +1,4 @@
+import math
 import os
 import sqlite3
 from contextlib import closing
@@ -11,6 +12,13 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, ses
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "sample_colleges.db"
 PAGE_SIZE = 9
+ANNUAL_FEE_SQL = """(
+    LOWER(TRIM(COALESCE(fee_type, ''))) IN (
+        'annual', 'annual fee', 'annual tuition', 'annual tuition fee',
+        'annual tuition fees', 'yearly', 'yearly fee', 'yearly tuition',
+        'per annum', 'tuition per annum'
+    )
+)"""
 VERIFICATION_STATES = {
     "verified",
     "pending_verification",
@@ -61,10 +69,17 @@ ADMIN_RECORDS = {
 }
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get(
-    "COLLEGEHUB_SECRET_KEY", "collegehub-local-demo-session-key"
-)
+secret_key = os.environ.get("COLLEGEHUB_SECRET_KEY")
+if (os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV")) and not secret_key:
+    raise RuntimeError("COLLEGEHUB_SECRET_KEY must be configured for deployed sessions.")
+app.config["SECRET_KEY"] = secret_key or "collegehub-local-demo-session-key"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = (
+    os.environ.get("VERCEL_ENV") == "production"
+    or os.environ.get("COLLEGEHUB_SECURE_COOKIES") == "1"
+)
 
 
 def safe_redirect_target(target, fallback):
@@ -137,6 +152,8 @@ def get_writable_db():
 def admin_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
+        if read_only_deployment():
+            abort(503, description="The demo administrator is disabled in read-only deployments.")
         if not session.get("collegehub_demo_admin"):
             return redirect(url_for("admin_login", next=request.path))
         return view(*args, **kwargs)
@@ -156,7 +173,8 @@ def college_query(where_sql="", order_by="c.featured DESC, c.name"):
     return f"""
         SELECT c.*, s.name AS stream_name, s.slug AS stream_slug,
                (SELECT GROUP_CONCAT(name, ', ') FROM courses WHERE college_id=c.id) AS course_names,
-               (SELECT MIN(amount) FROM fee_records WHERE college_id=c.id) AS min_fee
+               (SELECT MIN(amount) FROM fee_records
+                WHERE college_id=c.id AND verification_status='verified' AND {ANNUAL_FEE_SQL}) AS min_fee
         FROM colleges c JOIN streams s ON s.id=c.stream_id
         {where_sql}
         ORDER BY {order_by}
@@ -224,6 +242,7 @@ def colleges():
     category = request.args.get("category", "").strip()
     ownership = request.args.get("ownership", "").strip()
     fee_range = request.args.get("fee_range", "").strip()
+    facility = request.args.get("facility", "").strip()
     hostel = request.args.get("hostel", "").strip()
     sort = request.args.get("sort", "featured")
     try:
@@ -251,6 +270,11 @@ def colleges():
     if ownership:
         conditions.append("LOWER(COALESCE(c.ownership, ''))=LOWER(?)")
         parameters.append(ownership)
+    if facility:
+        conditions.append(
+            "EXISTS (SELECT 1 FROM facilities ff WHERE ff.college_id=c.id AND ff.label=?)"
+        )
+        parameters.append(facility)
     if fee_range in {"under-50000", "50000-100000", "over-100000"}:
         expressions = {
             "under-50000": "fr.amount < 50000",
@@ -258,7 +282,9 @@ def colleges():
             "over-100000": "fr.amount > 100000",
         }
         conditions.append(
-            f"EXISTS (SELECT 1 FROM fee_records fr WHERE fr.college_id=c.id AND {expressions[fee_range]})"
+            f"""EXISTS (SELECT 1 FROM fee_records fr WHERE fr.college_id=c.id
+                AND fr.verification_status='verified' AND {ANNUAL_FEE_SQL}
+                AND {expressions[fee_range]})"""
         )
     if hostel in {"yes", "no"}:
         conditions.append("c.hostel_available=?")
@@ -269,12 +295,14 @@ def colleges():
         "featured": "c.featured DESC, c.name",
         "name": "c.name COLLATE NOCASE",
         "district": "c.district COLLATE NOCASE, c.name COLLATE NOCASE",
+        "fees": "min_fee IS NULL, min_fee, c.name COLLATE NOCASE",
     }
     order_by = order_options.get(sort, order_options["featured"])
     with closing(get_db()) as db:
         streams = db.execute("SELECT * FROM streams ORDER BY name").fetchall()
         districts = db.execute("SELECT DISTINCT district FROM colleges WHERE district IS NOT NULL ORDER BY district").fetchall()
         courses = db.execute("SELECT DISTINCT name FROM courses ORDER BY name").fetchall()
+        facilities = db.execute("SELECT DISTINCT label FROM facilities ORDER BY label").fetchall()
         total = db.execute(
             f"SELECT COUNT(*) FROM colleges c JOIN streams s ON s.id=c.stream_id {where_sql}",
             parameters,
@@ -295,7 +323,8 @@ def colleges():
         "colleges.html", colleges=rows, streams=streams, districts=districts, courses=courses,
         categories=categories, ownerships=ownerships, q=q, selected_stream=stream,
         selected_district=district, selected_course=course, selected_category=category,
-        selected_ownership=ownership, selected_fee_range=fee_range, selected_hostel=hostel,
+        selected_ownership=ownership, selected_fee_range=fee_range, selected_facility=facility,
+        facilities=facilities, selected_hostel=hostel,
         sort=sort, page=page, pages=pages, total=total,
     )
 
@@ -365,6 +394,226 @@ def compare_colleges():
                     "SELECT hostel_available FROM colleges WHERE id=?", (college["id"],)
                 ).fetchone()[0]
     return render_template("compare.html", colleges=colleges_to_compare)
+
+
+@app.get("/recommendations")
+def recommendations():
+    course = request.args.get("course", "").strip()
+    district = request.args.get("district", "").strip()
+    ownership = request.args.get("ownership", "").strip()
+    hostel = request.args.get("hostel", "").strip()
+    facility_preferences = list(dict.fromkeys(request.args.getlist("facility")))
+    budget_raw = request.args.get("max_annual_fee", "").strip()
+    try:
+        max_annual_fee = float(budget_raw) if budget_raw else None
+    except ValueError:
+        abort(400, description="Maximum annual fee must be a non-negative number.")
+    if max_annual_fee is not None and (
+        not math.isfinite(max_annual_fee) or max_annual_fee < 0 or max_annual_fee > 1_000_000_000
+    ):
+        abort(400, description="Maximum annual fee must be between 0 and 1,000,000,000.")
+    if hostel not in {"", "yes", "no"}:
+        abort(400, description="Hostel preference must be yes or no.")
+
+    with closing(get_db()) as db:
+        colleges = db.execute(college_query(order_by="c.name COLLATE NOCASE")).fetchall()
+        courses = db.execute("SELECT DISTINCT name FROM courses ORDER BY name").fetchall()
+        districts = db.execute(
+            "SELECT DISTINCT district AS name FROM colleges WHERE district IS NOT NULL ORDER BY district"
+        ).fetchall()
+        ownerships = db.execute(
+            "SELECT DISTINCT ownership AS name FROM colleges WHERE ownership IS NOT NULL ORDER BY ownership"
+        ).fetchall()
+        facilities = db.execute("SELECT DISTINCT label FROM facilities ORDER BY label").fetchall()
+
+        course_names = {row["name"] for row in courses}
+        district_names = {row["name"] for row in districts}
+        ownership_names = {row["name"] for row in ownerships}
+        facility_names = {row["label"] for row in facilities}
+        if course and course not in course_names:
+            abort(400, description="Select a course from the available options.")
+        if district and district not in district_names:
+            abort(400, description="Select a district from the available options.")
+        if ownership and ownership not in ownership_names:
+            abort(400, description="Select a college type from the available options.")
+        if any(value not in facility_names for value in facility_preferences):
+            abort(400, description="Select facilities from the available options.")
+
+        courses_by_college = {}
+        for row in db.execute("SELECT college_id, name FROM courses"):
+            courses_by_college.setdefault(row["college_id"], set()).add(row["name"].casefold())
+        verified_facilities_by_college = {}
+        for row in db.execute(
+            "SELECT college_id, label FROM facilities WHERE verification_status='verified'"
+        ):
+            verified_facilities_by_college.setdefault(row["college_id"], set()).add(row["label"])
+        annual_fees_by_college = {}
+        for row in db.execute(
+            f"""SELECT college_id, MIN(amount) AS amount FROM fee_records
+                WHERE verification_status='verified' AND {ANNUAL_FEE_SQL}
+                  AND amount IS NOT NULL GROUP BY college_id"""
+        ):
+            annual_fees_by_college[row["college_id"]] = row["amount"]
+
+    preference_count = (
+        bool(course) + bool(district) + (max_annual_fee is not None)
+        + bool(ownership) + bool(hostel) + len(facility_preferences)
+    )
+    results = []
+    if preference_count:
+        for college in colleges:
+            reasons = []
+            matches = 0
+            college_courses = courses_by_college.get(college["id"], set())
+            if course:
+                matched = course.casefold() in college_courses
+                matches += int(matched)
+                reasons.append(
+                    f"{'Course is listed' if matched else 'Course is not listed'}: {course}."
+                )
+            if district:
+                matched = (college["district"] or "").casefold() == district.casefold()
+                matches += int(matched)
+                reasons.append(
+                    f"{'District matches' if matched else 'District differs'}: "
+                    f"{college['district'] or 'not provided'}."
+                )
+            if ownership:
+                matched = (college["ownership"] or "").casefold() == ownership.casefold()
+                matches += int(matched)
+                reasons.append(
+                    f"{'College type matches' if matched else 'College type differs'}: "
+                    f"{college['ownership'] or 'not provided'}."
+                )
+            if max_annual_fee is not None:
+                annual_fee = annual_fees_by_college.get(college["id"])
+                matched = annual_fee is not None and annual_fee <= max_annual_fee
+                matches += int(matched)
+                if annual_fee is None:
+                    reasons.append("Budget fit cannot be checked: no verified annual fee is available.")
+                else:
+                    reasons.append(
+                        f"Verified annual fee {'is within' if matched else 'exceeds'} "
+                        f"the budget: ₹{annual_fee:,.0f}."
+                    )
+            if hostel:
+                hostel_known = (
+                    college["information_status"] == "verified"
+                    and college["hostel_available"] is not None
+                )
+                matched = hostel_known and bool(college["hostel_available"]) == (hostel == "yes")
+                matches += int(matched)
+                if hostel_known:
+                    reasons.append(
+                        f"Verified hostel availability {'matches' if matched else 'does not match'} "
+                        "the preference."
+                    )
+                else:
+                    reasons.append("Hostel fit cannot be checked from verified information.")
+            for requested_facility in facility_preferences:
+                matched = requested_facility in verified_facilities_by_college.get(college["id"], set())
+                matches += int(matched)
+                reasons.append(
+                    f"{'Verified facility found' if matched else 'No verified record for'}: "
+                    f"{requested_facility}."
+                )
+
+            results.append({
+                **dict(college),
+                "match_percentage": round(matches * 100 / preference_count),
+                "reasons": reasons,
+                "annual_fee": annual_fees_by_college.get(college["id"]),
+            })
+        results.sort(key=lambda result: (-result["match_percentage"], result["name"].casefold()))
+
+    return render_template(
+        "recommendations.html", results=results, courses=courses, districts=districts,
+        ownerships=ownerships, facilities=facilities, selected_course=course,
+        selected_district=district, selected_ownership=ownership,
+        selected_facilities=facility_preferences, selected_hostel=hostel,
+        max_annual_fee=budget_raw, has_preferences=bool(preference_count),
+    )
+
+
+@app.get("/cutoffs")
+def cutoff_analytics():
+    college_id_raw = request.args.get("college", "").strip()
+    course = request.args.get("course", "").strip()
+    academic_year = request.args.get("year", "").strip()
+    try:
+        college_id = int(college_id_raw) if college_id_raw else None
+    except ValueError:
+        abort(400, description="Select a college from the available options.")
+
+    conditions = []
+    parameters = []
+    if college_id is not None:
+        conditions.append("x.college_id=?")
+        parameters.append(college_id)
+    if course:
+        conditions.append("cr.name=?")
+        parameters.append(course)
+    if academic_year:
+        conditions.append("x.academic_year=?")
+        parameters.append(academic_year)
+    where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    with closing(get_db()) as db:
+        colleges = db.execute("SELECT id, name FROM colleges ORDER BY name").fetchall()
+        courses = db.execute("SELECT DISTINCT name FROM courses ORDER BY name").fetchall()
+        years = db.execute(
+            """SELECT DISTINCT academic_year AS label FROM cutoff_records
+               WHERE academic_year IS NOT NULL ORDER BY label DESC"""
+        ).fetchall()
+        if college_id is not None and college_id not in {row["id"] for row in colleges}:
+            abort(400, description="Select a college from the available options.")
+        if course and course not in {row["name"] for row in courses}:
+            abort(400, description="Select a course from the available options.")
+        if academic_year and academic_year not in {row["label"] for row in years}:
+            abort(400, description="Select an academic year from the available options.")
+        records = db.execute(
+            f"""SELECT x.*, c.name AS college_name, cr.name AS course_name,
+                       s.source_name, s.source_url
+                FROM cutoff_records x
+                JOIN colleges c ON c.id=x.college_id
+                LEFT JOIN courses cr ON cr.id=x.course_id
+                LEFT JOIN information_sources s ON s.id=x.source_id
+                {where_sql}
+                ORDER BY x.academic_year DESC, c.name, cr.name, x.quota""",
+            parameters,
+        ).fetchall()
+
+    display_records = []
+    chart_records = []
+    for row in records:
+        item = dict(row)
+        item["verified"] = bool(
+            item["verification_status"] == "verified"
+            and item["source_name"] and item["source_url"]
+            and item["academic_year"] and item["last_verified"]
+        )
+        try:
+            numeric_value = float(item["cutoff_value"])
+            if not math.isfinite(numeric_value) or numeric_value < 0:
+                numeric_value = None
+        except (TypeError, ValueError):
+            numeric_value = None
+        item["numeric_value"] = numeric_value
+        display_records.append(item)
+        if item["verified"] and numeric_value is not None:
+            chart_records.append(item)
+    chart_maximum = max((item["numeric_value"] for item in chart_records), default=0)
+    for item in chart_records:
+        item["bar_width"] = (
+            max(4, round(item["numeric_value"] * 100 / chart_maximum))
+            if chart_maximum else 4
+        )
+
+    return render_template(
+        "cutoffs.html", records=display_records, chart_records=chart_records,
+        colleges=colleges, courses=courses, years=years,
+        selected_college=college_id, selected_course=course, selected_year=academic_year,
+    )
 
 
 @app.get("/about")
@@ -466,11 +715,15 @@ def student_logout():
 
 @app.get("/admin/login")
 def admin_login():
+    if read_only_deployment():
+        abort(503, description="The demo administrator is disabled in read-only deployments.")
     return render_template("access_form.html", mode="admin_login", next_url=request.args.get("next", ""))
 
 
 @app.post("/admin/login")
 def admin_login_submit():
+    if read_only_deployment():
+        abort(503, description="The demo administrator is disabled in read-only deployments.")
     session["collegehub_demo_admin"] = True
     return redirect(safe_redirect_target(request.form.get("next"), url_for("admin_dashboard")))
 
@@ -1054,4 +1307,4 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=os.environ.get("COLLEGEHUB_DEBUG") == "1")

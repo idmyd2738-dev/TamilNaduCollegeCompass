@@ -10,9 +10,9 @@
     <tr><th scope="row">Category</th>{% for college in colleges %}<td>{{ college.category or 'Not provided' }}</td>{% endfor %}</tr>
     <tr><th scope="row">Ownership</th>{% for college in colleges %}<td>{{ college.ownership or 'Not provided' }}</td>{% endfor %}</tr>
     <tr><th scope="row">Courses</th>{% for college in colleges %}<td>{{ college.course_names or 'Not provided' }}</td>{% endfor %}</tr>
-    <tr><th scope="row">Fees</th>{% for college in colleges %}<td>{% if college.min_fee is not none %}₹{{ '%.2f'|format(college.min_fee) }} from sample record{% else %}Not provided{% endif %}</td>{% endfor %}</tr>
+    <tr><th scope="row">Annual fees</th>{% for college in colleges %}<td>{% if college.min_fee is not none %}₹{{ '%.2f'|format(college.min_fee) }} · verified annual fee{% else %}No verified annual fee provided{% endif %}</td>{% endfor %}</tr>
     <tr><th scope="row">Facilities</th>{% for college in colleges %}<td>{% if college.facilities %}{% for facility in college.facilities %}{{ facility.label }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Not provided{% endif %}</td>{% endfor %}</tr>
-    <tr><th scope="row">Hostel availability</th>{% for college in colleges %}<td>{% if college.hostel_available is none %}Not provided{% elif college.hostel_available %}Yes · unverified{% else %}No · unverified{% endif %}</td>{% endfor %}</tr>
+    <tr><th scope="row">Hostel availability</th>{% for college in colleges %}<td>{% if college.hostel_available is none %}Not provided{% elif college.information_status=='verified' %}{{ 'Yes' if college.hostel_available else 'No' }} · verified{% else %}{{ 'Yes' if college.hostel_available else 'No' }} · unverified{% endif %}</td>{% endfor %}</tr>
     <tr><th scope="row">Official website</th>{% for college in colleges %}<td>{% if college.official_website %}<a href="{{ college.official_website }}" target="_blank" rel="noopener noreferrer">Visit website ↗</a>{% else %}Not provided{% endif %}</td>{% endfor %}</tr>
     <tr><th scope="row">Information status</th>{% for college in colleges %}<td>{% with status=college.information_status %}{% include 'status_badge.html' %}{% endwith %}</td>{% endfor %}</tr>
   </tbody></table></div>

@@ -1,10 +1,27 @@
 # CollegeHub
 
-CollegeHub is a Flask/Jinja2/SQLite demonstration for exploring Tamil Nadu college streams, sample college records and general admission guidance. It extends the existing prototype and does not provide production authentication or official admission advice.
+CollegeHub is a Flask/Jinja2/SQLite prototype for exploring Tamil Nadu college streams, sample records, and general admission guidance. College and course records are fictional demo data; the site is not an official admissions authority and does not provide production authentication.
 
-## Run locally (Windows PowerShell)
+## Features
 
-From the project directory:
+- College directory with search, stream, district, course, category, ownership, facility, hostel, and verified annual-fee filters; sorting and pagination.
+- College profiles and browser-local shortlist/comparison.
+- Preference recommendations with an explainable data-match score (not admission probability).
+- Cutoff record filters and a chart limited to sourced, dated, verified numeric records.
+- Deterministic FAQ/chat responses with official links where available; no AI or RAG integration.
+- Local-only demo admin CRUD and source/verification workflows.
+
+## Technology and structure
+
+- Python 3.12, Flask, Jinja2, SQLite, vanilla JavaScript, and CSS.
+- `app.py` contains routes, read-only public data access, and local demo admin handlers.
+- `init_db.py` applies idempotent, additive SQLite schema updates.
+- `index.py` exports the Flask application for the existing deployment entry point.
+- `templates/`, `static/`, and `tests/` contain UI, assets, and unit/integration tests.
+
+## Local setup (Windows PowerShell)
+
+Run from the project directory:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -14,53 +31,36 @@ python init_db.py
 python app.py
 ```
 
-Open http://127.0.0.1:5000.
+Open http://127.0.0.1:5000. The local sample admin portal is a demo, not an authenticated administrator system. Do not enter real credentials or personal information.
 
-`init_db.py` is an idempotent additive migration. It creates the new SQLite tables and indexes, adds nullable metadata and verification columns, and inserts demonstration guidance/FAQ rows with `INSERT OR IGNORE`. Existing colleges, courses and facilities are preserved. Run it locally before using the extended pages; it does not run automatically during app import.
+## Environment variables
 
-## Main pages
+See [.env.example](./.env.example). For local development, the application retains a development-only fallback session key. For Vercel/read-only deployments, set a unique `COLLEGEHUB_SECRET_KEY` in the provider's environment settings; the application fails at startup if it is missing. Set `COLLEGEHUB_SECURE_COOKIES=1` when serving over HTTPS outside Vercel. Set `COLLEGEHUB_DEBUG=1` only for local debugging.
 
-- `/` — homepage
-- `/college` — stream selection
-- `/college/engineering`, `/college/agriculture`, `/college/medical`, `/college/arts-science` — stream guidance and tabs
-- `/colleges` — searchable, filterable, sortable, paginated sample directory
-- `/colleges/<id>` — college profile
-- `/compare` — compare two or three selected colleges
-- `/chat` — predefined CollegeHub chatbot and FAQ
-- `/login`, `/student/login`, `/student/register`, `/student/dashboard` — demo student portal
-- `/admin/login`, `/admin` — local admin demo and sample-record management
-- `/health` — application health
+## Database and deployment
 
-## Demo interactions and limitations
+The bundled `sample_colleges.db` is opened read-only by public routes. The local admin portal can write to SQLite only outside read-only deployments. Admin access is disabled when `VERCEL`, `VERCEL_ENV`, or `COLLEGEHUB_READ_ONLY=1` is set. Serverless local-file writes are not persistent; the current project does not have a PostgreSQL adapter or database provider configured. Do not use this deployment for persistent production data.
 
-- College search, stream, district and course filters work with the bundled records. Category, ownership, fee and hostel filters return matches only after those fields have been added to records; the prototype does not infer missing data.
-- Favourites, comparison selection, saved searches and chatbot conversations use this browser's local storage. They are not associated with a verified account.
-- Student and admin portals are explicitly demo-only. Their forms do not validate passwords or create secure accounts; passwords are not stored. Do not enter real credentials or sensitive personal information.
-- Local admin tools can create, edit and delete sample college, course, fee, cutoff, facility, hostel and FAQ records; update stream and district metadata; and manage record verification. New and edited records are marked unverified or pending by default. Marking a record verified requires a source, academic year and last-verified date.
-- The database contains no verified sample fees, cutoffs, official college websites or hostel availability. Those values remain blank until sourced and entered.
-- The chatbot uses deterministic, predefined responses. It is not an AI or RAG service.
-- The database includes tables for academic years, districts, fees, cutoffs, hostels, information sources, verification records, guidance, FAQs, student demo profiles and feedback. No student password is stored.
-- Public content routes use read-only SQLite access. Local admin updates are available only in explicitly labelled demo mode; `/health` reports whether the app is in local or read-only demo mode.
+See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for deployment settings and limitations. `init_db.py` makes additive changes and preserves existing sample records; it does not run automatically during app import.
 
-## Verification labels
+## Verification and sample-data policy
 
-- **Verified** — reserved for records with a source, academic year and last verified date.
-- **Pending verification**, **Information not yet verified**, and **Outdated** — indicate that a record should not be relied on as current official guidance.
+Verified records require a source, academic year, and last-verified date. Annual-fee filters use only verified fee records explicitly labelled annual, yearly, or per annum. Cutoff charts require a verified source and numeric value. Missing and unverified values are not fabricated; an empty verified chart is expected until evidence is entered.
 
-The supplied stream guidance links to the official sites listed in the project brief. Guidance content is labelled unverified until reviewed for the relevant admission year. Do not add current dates, eligibility requirements, fee amounts or cutoffs without a source.
+## Run tests
 
-## SQLite and deployment
-
-The bundled database is opened read-only by public application routes. Local admin writes use SQLite and are blocked when `VERCEL`, `VERCEL_ENV`, or `COLLEGEHUB_READ_ONLY=1` is set. Vercel deployments should remain read-only; changes made in an ephemeral deployment filesystem will not persist. Run the migration and admin CRUD locally only.
-
-For local sessions, CollegeHub uses a development-only default secret. Do not treat it as production security. `COLLEGEHUB_SECRET_KEY` may be set for a local deployment where a non-default session secret is required.
-
-The existing Vercel entry point remains `index.py`. Do not add a writable-database assumption to serverless deployment configuration.
-
-## Test
+From the project directory:
 
 ```powershell
+python -m compileall -q app.py init_db.py index.py tests
 python -m pytest -q
 ```
 
-The tests cover existing search and chatbot behavior, new page routes, comparison, demo student access, SQLite migration idempotence, local admin CRUD, and verification requirements.
+`tests/test_app.py` covers routes, filters, comparison, recommendations, cutoff verification, migration idempotence, and local admin CRUD. Selenium checks in `selenium_tests/` are separate browser-level tests and may require a running app and browser driver.
+
+## Known limitations
+
+- Student/admin forms are demo flows; there are no persistent user accounts, password authentication, role management, or production-ready authorization.
+- Local admin write forms do not yet have CSRF tokens. The demo admin is disabled on read-only deployments, but the application must not be used as a production admin system.
+- PostgreSQL support, a migration framework, server-persisted student data, activity logs, and RAG/LLM integration are not implemented.
+- Sample records are fictional and do not provide verified current fees, cutoffs, facilities, or hostel information.

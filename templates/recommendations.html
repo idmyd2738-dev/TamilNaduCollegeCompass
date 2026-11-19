@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}College recommendations · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><div class="eyebrow">PERSONALIZED EXPLORATION</div><h1>Find colleges that fit <em>your priorities.</em></h1><p>Choose preferences to rank sample records by transparent data matches. This is not an admission prediction or guarantee.</p></div></section>
+<section class="container feature-page">
+  <form class="preference-form" method="get" action="/recommendations">
+    <label>Preferred course<select name="course"><option value="">Any course</option>{% for item in courses %}<option value="{{ item.name }}" {% if selected_course==item.name %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+    <label>Preferred district<select name="district"><option value="">Any district</option>{% for item in districts %}<option value="{{ item.name }}" {% if selected_district==item.name %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+    <label>Maximum annual fee (₹)<input type="number" min="0" max="1000000000" step="1" name="max_annual_fee" value="{{ max_annual_fee }}" placeholder="Only verified annual fees are compared"></label>
+    <label>College type<select name="ownership"><option value="">Any type</option>{% for item in ownerships %}<option value="{{ item.name }}" {% if selected_ownership==item.name %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+    <label>Hostel preference<select name="hostel"><option value="">No preference</option><option value="yes" {% if selected_hostel=='yes' %}selected{% endif %}>Required</option><option value="no" {% if selected_hostel=='no' %}selected{% endif %}>Not required</option></select></label>
+    <fieldset class="preference-facilities"><legend>Preferred facilities</legend>{% if facilities %}{% for item in facilities %}<label class="checkbox-option"><input type="checkbox" name="facility" value="{{ item.label }}" {% if item.label in selected_facilities %}checked{% endif %}>{{ item.label }}</label>{% endfor %}{% else %}<span class="muted">No facility records available.</span>{% endif %}</fieldset>
+    <div class="preference-actions"><button class="button-primary" type="submit">Show matches <span aria-hidden="true">→</span></button><a class="button-secondary" href="/recommendations">Clear preferences</a></div>
+  </form>
+
+  <div class="recommendation-notice" role="note"><strong>How the score works</strong><span>Each selected preference contributes equally. Only verified annual fees, hostel information, and facilities can earn a match. Missing or unverified information earns no match and is explained below. Course, district, and college-type matches reflect sample records and may be unverified.</span></div>
+  {% if has_preferences %}
+    <div class="results-head"><strong>{{ results|length }} sample colleges ranked</strong><span>Match score describes data fit only; it is not admission probability.</span></div>
+    {% if results %}
+      <div class="recommendation-list">{% for college in results %}
+        <article class="recommendation-card">
+          <div class="recommendation-score" aria-label="{{ college.match_percentage }} percent of selected preferences matched"><strong>{{ college.match_percentage }}%</strong><span>data match</span></div>
+          <div class="recommendation-content">
+            <div class="eyebrow">{{ college.stream_name }} · {{ college.district or 'District not provided' }}</div>
+            <h2><a href="/colleges/{{ college.id }}">{{ college.name }}</a></h2>
+            {% with status=college.information_status %}{% include 'status_badge.html' %}{% endwith %}
+            <p class="recommendation-meta">Courses: {{ college.course_names or 'Not provided' }}<br>Verified annual fee: {% if college.annual_fee is not none %}₹{{ '%.2f'|format(college.annual_fee) }}{% else %}Not available{% endif %}</p>
+            <ul>{% for reason in college.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+          </div>
+        </article>
+      {% endfor %}</div>
+    {% else %}<div class="empty-state"><h2>No colleges in the sample database</h2><p>There are currently no college records to compare.</p></div>{% endif %}
+  {% else %}
+    <div class="empty-state"><h2>Choose at least one preference</h2><p>Recommendations will show the strongest available data matches and explain unknown fields.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

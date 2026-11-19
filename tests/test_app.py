@@ -20,7 +20,7 @@ class PrototypeTests(unittest.TestCase):
             "/", "/about", "/chat", "/college", "/college/engineering",
             "/college/agriculture", "/college/medical", "/college/arts-science",
             "/colleges", "/colleges/1", "/compare", "/login", "/student/login",
-            "/student/register", "/admin/login", "/health",
+            "/student/register", "/admin/login", "/health", "/recommendations", "/cutoffs",
         ]:
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
@@ -57,6 +57,112 @@ class PrototypeTests(unittest.TestCase):
         self.assertIn(b"Demo Institute of Technology", response.data)
         self.assertIn(b"Sample School of Engineering", response.data)
         self.assertIn(b"Not provided", response.data)
+
+    def test_recommendations_explain_matches_and_reject_invalid_budget(self):
+        with closing(app_module.get_db()) as connection:
+            preference = connection.execute(
+                """SELECT cr.name, c.district FROM courses cr
+                   JOIN colleges c ON c.id=cr.college_id LIMIT 1"""
+            ).fetchone()
+        response = self.client.get("/recommendations", query_string={
+            "course": preference["name"], "district": preference["district"],
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"100%", response.data)
+        self.assertIn(b"not admission probability", response.data.lower())
+        self.assertEqual(self.client.get("/recommendations?max_annual_fee=NaN").status_code, 400)
+        self.assertEqual(self.client.get("/recommendations?max_annual_fee=-1").status_code, 400)
+
+    def test_cutoff_analytics_does_not_invent_data(self):
+        response = self.client.get("/cutoffs")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"No verified numeric cutoff records", response.data)
+        self.assertIn(b"No trend is fabricated", response.data)
+        self.assertEqual(self.client.get("/cutoffs?college=invalid").status_code, 400)
+
+    def test_cutoff_chart_includes_only_sourced_verified_numeric_records(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = os.path.join(temp_dir, "collegehub.db")
+            shutil.copy2(app_module.DB_PATH, database)
+            original_path = app_module.DB_PATH
+            app_module.DB_PATH = Path(database)
+            try:
+                with closing(sqlite3.connect(database)) as connection:
+                    source_id = connection.execute(
+                        """INSERT INTO information_sources
+                           (college_id,source_name,source_url,academic_year,last_verified,verification_status)
+                           VALUES (1,'Official source','https://example.test/cutoffs','2025-26',
+                                   '2026-01-15','verified')"""
+                    ).lastrowid
+                    course_id = connection.execute(
+                        "SELECT id FROM courses WHERE college_id=1 LIMIT 1"
+                    ).fetchone()[0]
+                    connection.execute(
+                        """INSERT INTO cutoff_records
+                           (college_id,course_id,academic_year,cutoff_value,source_id,last_verified,verification_status)
+                           VALUES (1,?,'2025-26','184.25',?,'2026-01-15','verified')""",
+                        (course_id, source_id),
+                    )
+                    connection.execute(
+                        """INSERT INTO cutoff_records
+                           (college_id,course_id,academic_year,cutoff_value,verification_status)
+                           VALUES (1,?,'2025-26','190.00','information_not_verified')""",
+                        (course_id,),
+                    )
+                    connection.commit()
+                response = self.client.get("/cutoffs?college=1&year=2025-26")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data.count(b'class="cutoff-bar-row"'), 1)
+                self.assertIn(b"184.25", response.data)
+                self.assertIn(b"190.00", response.data)
+                self.assertIn(b"https://example.test/cutoffs", response.data)
+                self.assertIn(b"Excluded from verified analytics", response.data)
+            finally:
+                app_module.DB_PATH = original_path
+
+    def test_directory_filters_by_facility_from_database(self):
+        with closing(app_module.get_db()) as connection:
+            facility = connection.execute(
+                "SELECT label FROM facilities ORDER BY label LIMIT 1"
+            ).fetchone()["label"]
+            matching_college = connection.execute(
+                "SELECT college_id FROM facilities WHERE label=? LIMIT 1", (facility,)
+            ).fetchone()["college_id"]
+            college_name = connection.execute(
+                "SELECT name FROM colleges WHERE id=?", (matching_college,)
+            ).fetchone()["name"]
+        response = self.client.get("/colleges", query_string={"facility": facility})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(college_name.encode(), response.data)
+
+    def test_fee_filters_require_verified_annual_records(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = os.path.join(temp_dir, "collegehub.db")
+            shutil.copy2(app_module.DB_PATH, database)
+            original_path = app_module.DB_PATH
+            app_module.DB_PATH = Path(database)
+            try:
+                with closing(sqlite3.connect(database)) as connection:
+                    connection.execute(
+                        """INSERT INTO fee_records
+                           (college_id,academic_year,fee_type,amount,verification_status)
+                           VALUES (1,'2025-26','Annual tuition',25000,'information_not_verified')"""
+                    )
+                    connection.commit()
+                response = self.client.get("/colleges?fee_range=under-50000")
+                self.assertIn(b"0 sample colleges", response.data)
+                with closing(sqlite3.connect(database)) as connection:
+                    connection.execute(
+                        "UPDATE fee_records SET verification_status='verified' WHERE college_id=1"
+                    )
+                    connection.commit()
+                response = self.client.get("/colleges?fee_range=under-50000&sort=fees")
+                self.assertIn(b"Demo Institute of Technology", response.data)
+                comparison = self.client.get("/compare?ids=1,2")
+                self.assertIn(b"verified annual fee", comparison.data)
+                self.assertIn(b"25000.00", comparison.data)
+            finally:
+                app_module.DB_PATH = original_path
 
     def test_student_demo_registration_does_not_store_password(self):
         response = self.client.post("/student/register", data={
@@ -213,8 +319,10 @@ class PrototypeTests(unittest.TestCase):
         previous = os.environ.get("VERCEL")
         os.environ["VERCEL"] = "1"
         try:
+            self.assertEqual(self.client.get("/admin/login").status_code, 503)
             with self.client.session_transaction() as session:
                 session["collegehub_demo_admin"] = True
+            self.assertEqual(self.client.get("/admin").status_code, 503)
             response = self.client.post("/admin/colleges", data={
                 "name": "Blocked sample", "stream_id": "1", "city": "Nowhere",
                 "district": "Nowhere",
