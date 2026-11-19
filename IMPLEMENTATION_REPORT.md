@@ -52,4 +52,8 @@ Python syntax compilation passed. The full suite passed: `32 passed, 34 subtests
 
 ## Deployment and Git status
 
-The live homepage was reachable during the initial audit, before this local change. No local change has been deployed; live deployment status for this implementation is therefore unverified. Pre-existing untracked browser-test files are excluded from project commits.
+Implementation commit: `697878c33580e12f6f224c27eb3124b5fc5a5aab` on branch `main` (remote `origin`). A documentation follow-up records this status. Pre-existing untracked `selenium_tests/` files were not staged.
+
+The existing live site currently reports `{"mode":"read-only demo","status":"ok"}` at `/health`; it does not contain these local changes. I did not push: this change intentionally fails at startup on Vercel when `COLLEGEHUB_SECRET_KEY` is absent, and the provider's environment settings cannot be inspected from this checkout. Pushing without confirming the secret could replace the currently working deployment with a failing one.
+
+Before pushing, add a strong `COLLEGEHUB_SECRET_KEY` in Vercel project settings for each deployment environment, verify it is available to the deployment, then run `git push origin main`. Do not send the secret in chat or commit it to the repository.
