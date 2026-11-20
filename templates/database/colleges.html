@@ -1,0 +1,27 @@
+{% extends "database/base.html" %}
+{% block title %}Institution directory · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><div class="eyebrow">INSTITUTION DIRECTORY</div><h1>Find institutions with <em>source context.</em></h1><p>Search and filter the CollegeHub database. Status is shown per record; missing values are not inferred.</p></div></section>
+<section class="container directory-wrap">
+  <form class="filter-bar enhanced-filter" method="get" action="/colleges">
+    <label class="filter-search"><input name="q" value="{{ filters.name or '' }}" placeholder="Institution name" aria-label="Institution name"></label>
+    <select name="category" aria-label="Filter by category"><option value="">All categories</option>{% for item in categories %}<option value="{{ item.code }}" {% if filters.category==item.code %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
+    <select name="type" aria-label="Filter by institution type"><option value="">All institution types</option>{% for item in institution_types %}<option value="{{ item.code }}" {% if filters.institution_type==item.code %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
+    <select name="district" aria-label="Filter by district"><option value="">All districts</option>{% for item in districts %}<option value="{{ item }}" {% if filters.district==item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+    <select name="program" aria-label="Filter by programme"><option value="">All programmes</option>{% for item in programs %}<option value="{{ item }}" {% if filters.program_name==item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+    <select name="facility" aria-label="Filter by facility"><option value="">Any facility</option>{% for item in facilities %}<option value="{{ item.code }}" {% if filters.facility_code==item.code %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
+    <input type="hidden" name="per_page" value="{{ per_page }}">
+    <button class="button-primary" type="submit">Search →</button>
+  </form>
+  <div class="directory-toolbar"><div class="results-head"><strong>{{ total }} institution records</strong><span>Records include their verification status and provenance.</span></div><a href="/compare">Compare institutions</a></div>
+  {% if institutions %}<div class="college-grid directory-grid">{% for institution in institutions %}
+  <article class="college-card"><div class="college-banner"><span>{{ institution.category.name }}</span><span class="banner-initial" aria-hidden="true">{{ institution.category.name[0] }}</span></div><div class="college-card-body"><h2><a href="/colleges/{{ institution.id }}">{{ institution.official_name }}</a></h2><p>{{ institution.city or 'City not provided' }}{% if institution.district %}, {{ institution.district }}{% endif %}</p><p>{{ institution.institution_type.name }}</p><span class="verification-label">{{ institution.provenance.verification_status|title }}</span>{% if institution.official_website %}<a class="source-link" href="{{ institution.official_website }}" rel="noopener noreferrer" target="_blank">Official website ↗</a>{% endif %}</div></article>
+  {% endfor %}</div>
+  <nav class="pagination" aria-label="Directory pages">
+    {% if page > 1 %}<a href="{{ url_for('colleges', q=filters.name, category=filters.category, type=filters.institution_type, district=filters.district, program=filters.program_name, affiliation=filters.affiliation, accreditation=filters.accreditation, facility=filters.facility_code, page=page-1, per_page=per_page, sort=sort) }}">← Previous</a>{% else %}<span></span>{% endif %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    {% if page < pages %}<a href="{{ url_for('colleges', q=filters.name, category=filters.category, type=filters.institution_type, district=filters.district, program=filters.program_name, affiliation=filters.affiliation, accreditation=filters.accreditation, facility=filters.facility_code, page=page+1, per_page=per_page, sort=sort) }}">Next →</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% else %}<div class="empty-state"><h2>No matching institution records</h2><p>Try changing a filter, or clear your search. No sample colleges are substituted.</p><a class="button-primary" href="/colleges">Clear filters</a></div>{% endif %}
+</section>
+{% endblock %}

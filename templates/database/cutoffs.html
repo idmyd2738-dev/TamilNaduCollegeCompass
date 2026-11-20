@@ -1,0 +1,18 @@
+{% extends "database/base.html" %}
+{% block title %}Admission analytics · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><div class="eyebrow">ADMISSION ANALYTICS</div><h1>Review admission records <em>by metric.</em></h1><p>Rank, score, marks, percentage, cutoff score and merit position are distinct measurements and are never combined.</p></div></section>
+<section class="container feature-page">
+  <form class="preference-form cutoff-filters" method="get" action="/cutoffs">
+    <label>Institution<select name="institution"><option value="">All institutions</option>{% for item in institutions %}<option value="{{ item.id }}" {% if selected_institution==item.id %}selected{% endif %}>{{ item.official_name }}</option>{% endfor %}</select></label>
+    <label>Academic year<select name="year"><option value="">All years</option>{% for item in years %}<option value="{{ item }}" {% if selected_year==item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Measurement type<select name="metric"><option value="">All types (no combined chart)</option>{% for item in measurement_types %}<option value="{{ item }}" {% if selected_metric==item %}selected{% endif %}>{{ item|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+    <label>Student category<input name="category" value="{{ selected_category }}"></label>
+    <label>Quota<input name="quota" value="{{ selected_quota }}"></label>
+    <div class="preference-actions"><button class="button-primary" type="submit">Apply filters →</button><a class="button-secondary" href="/cutoffs">Clear</a></div>
+  </form>
+  {% if records %}<div class="compare-table-wrap cutoff-table-wrap"><table class="compare-table"><thead><tr><th>Institution</th><th>Programme</th><th>Academic year</th><th>Category / quota</th><th>Measurement</th><th>Source and status</th></tr></thead><tbody>
+  {% for record in records %}<tr><td>{{ record.institution.official_name }}</td><td>{{ record.program.name }}</td><td>{{ record.academic_year.label }}</td><td>{{ record.student_category or 'Not provided' }} / {{ record.quota or 'Not provided' }}</td><td>{{ record.measurement_value }} {{ record.measurement_unit }} ({{ record.measurement_type|replace('_',' ') }})</td><td>{{ record.provenance.verification_status|title }}{% if record.provenance.source and record.provenance.source.source_url %}<br><a href="{{ record.provenance.source.source_url }}" target="_blank" rel="noopener noreferrer">{{ record.provenance.source.source_organisation or 'Source' }} ↗</a>{% else %}<br>Source not recorded{% endif %}</td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<div class="empty-state"><h2>No admission measurements are available</h2><p>No historical admission records match these filters. No cutoff trend is fabricated.</p></div>{% endif %}
+</section>
+{% endblock %}

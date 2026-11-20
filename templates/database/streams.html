@@ -1,0 +1,10 @@
+{% extends "database/base.html" %}
+{% block title %}Institution categories · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><div class="eyebrow">INSTITUTION CATEGORIES</div><h1>Explore by <em>field.</em></h1><p>Counts reflect records currently stored in the database; they are not estimates of statewide coverage.</p></div></section>
+<section class="container section">
+  {% if categories %}<div class="stream-grid">
+    {% for category in categories %}<a class="stream-card" href="/college/{{ category.code }}"><span class="stream-count">{{ category.institution_count }} records</span><h2>{{ category.name }}</h2><span class="card-arrow" aria-hidden="true">↗</span></a>{% endfor %}
+  </div>{% else %}<div class="empty-state"><h2>No categories are available</h2><p>Database lookup data has not been initialized.</p></div>{% endif %}
+</section>
+{% endblock %}

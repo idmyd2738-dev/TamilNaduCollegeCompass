@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CollegeHub{% endblock %}</title>
+  <meta name="description" content="Search CollegeHub's sourced higher-education records for Tamil Nadu.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="CollegeHub home">
+    <span class="brand-mark" aria-hidden="true">C</span><span class="brand-name">CollegeHub</span>
+  </a>
+  <nav class="nav-links" aria-label="Main navigation">
+    <a href="/">Home</a>
+    <a href="/colleges">Explore</a>
+    <a href="/recommendations">Recommendations</a>
+    <a href="/cutoffs">Admission records</a>
+    <a href="/chat">Chatbot</a>
+    <a href="/about">About</a>
+  </nav>
+</header>
+<main>{% block content %}{% endblock %}</main>
+<footer class="footer">
+  <div class="footer-main">
+    <a class="brand footer-brand" href="/"><span class="brand-mark" aria-hidden="true">C</span><span class="brand-name">CollegeHub</span></a>
+    <p>Institution information is displayed with its recorded source and verification status.</p>
+    <a class="footer-about" href="/about">About CollegeHub</a>
+  </div>
+  <div class="footer-meta"><span>© CollegeHub</span><span>Check official sources for current admissions requirements.</span></div>
+</footer>
+</body>
+</html>

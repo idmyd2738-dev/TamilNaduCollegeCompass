@@ -1,0 +1,191 @@
+{% extends "database/base.html" %}
+{% block title %}Database administration · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero">
+  <div class="container">
+    <div class="eyebrow">DATABASE ADMINISTRATION</div>
+    <h1>Review sourced <em>records</em></h1>
+    <p>Imported facts remain unverified until explicitly reviewed. Importing never marks records as verified.</p>
+    <form method="post" action="{{ url_for('admin_logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Sign out</button>
+    </form>
+  </div>
+</section>
+<section class="container section">
+  <h2>Database overview</h2>
+  <div class="card-grid">
+    {% for label, key in [
+      ('Institutions', 'institutions'), ('Programmes', 'programs'),
+      ('Admission records', 'admissions'), ('Fee components', 'fees'),
+      ('Cutoff scores', 'cutoffs'), ('Placement reports', 'placements'),
+      ('Verified provenance records', 'verified'), ('Pending or unverified', 'pending'),
+      ('RAG documents', 'documents'), ('Source documents', 'source_documents'),
+      ('Import jobs', 'import_jobs'), ('Failed import jobs', 'failed_jobs')
+    ] %}
+    <article class="card"><div class="eyebrow">{{ label }}</div><p class="card-title">{{ counts[key] }}</p></article>
+    {% endfor %}
+  </div>
+</section>
+<section class="container section">
+  <h2>Register a source</h2>
+  <p>Registering a source does not fetch it or verify any facts.</p>
+  <form method="post" action="{{ url_for('database_admin_add_source') }}" class="search-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="source-url">Official source URL</label>
+    <input id="source-url" type="url" name="source_url" maxlength="2048" required>
+    <label for="source-organisation">Source organisation</label>
+    <input id="source-organisation" name="source_organisation" maxlength="255" required>
+    <label for="document-title">Document or page title</label>
+    <input id="document-title" name="document_title" maxlength="500" required>
+    <label for="source-type">Document type (optional)</label>
+    <input id="source-type" name="source_document_type" maxlength="80">
+    <button type="submit">Register source</button>
+  </form>
+</section>
+<section class="container section">
+  <h2>Available official imports</h2>
+  <p>The Anna University directory importer is bounded to its configured official source. New records are pending review.</p>
+  <form method="post" action="{{ url_for('database_admin_ingest_anna_university') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">Run Anna University directory import</button>
+  </form>
+  <h3>TNGASA 2026 government arts and science college directory</h3>
+  <p>Imports college codes, names, and districts from the official 2026 college-information PDF. NAAC grades are stored as pending accreditation records. The source's 2025 admit percentages, NIRF labels and seat-availability fields are retained in provenance notes; they are not converted into cutoff or programme seat records.</p>
+  <form method="post" action="{{ url_for('database_admin_ingest_tngasa_2026') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">Fetch and import TNGASA 2026 college directory</button>
+  </form>
+</section>
+
+<section class="container section">
+  <h2>Index an official document for the AI assistant</h2>
+  <p>Register the official source first. Upload a PDF, HTML, CSV, TXT or Markdown document. Text is extracted, chunked and embedded; the original file is not retained.</p>
+  <form method="post" action="{{ url_for('database_admin_upload_document') }}" enctype="multipart/form-data" class="search-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="rag-source-url">Registered official source URL</label>
+    <select id="rag-source-url" name="source_url" required>
+      <option value="">Choose a registered source</option>
+      {% for source in sources %}
+        {% if source.source_url %}
+          <option value="{{ source.source_url }}">{{ source.source_organisation or source.document_title }} — {{ source.source_url }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <label for="rag-academic-year">Academic year (optional, e.g. 2026-27)</label>
+    <input id="rag-academic-year" name="academic_year" maxlength="20" placeholder="2026-27">
+    <label for="rag-document">Official document</label>
+    <input id="rag-document" type="file" name="document" accept=".pdf,.html,.htm,.csv,.txt,.md" required>
+    <button type="submit">Extract, embed and index document</button>
+  </form>
+  <p>AI indexing requires the configured embedding provider. Chat responses also require a configured LLM provider.</p>
+</section>
+
+<section class="container section">
+  <h2>Pending review queue</h2>
+  {% if pending %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Record</th><th>Status</th><th>Source</th><th>Review</th></tr></thead>
+      <tbody>
+      {% for item in pending %}
+        <tr>
+          <td>{{ item.label }}</td>
+          <td>{{ item.status }}</td>
+          <td>
+            {% if item.source and item.source.source_url %}
+              <a href="{{ item.source.source_url }}" rel="noopener noreferrer">{{ item.source.document_title or item.source.source_url }}</a>
+            {% else %}No source linked{% endif %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('database_admin_review_provenance', provenance_id=item.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <label>
+                <span class="sr-only">Verification status</span>
+                <select name="verification_status">
+                  <option value="pending">Pending</option>
+                  <option value="verified">Verified</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="outdated">Outdated</option>
+                </select>
+              </label>
+              <label>
+                <span class="sr-only">Review notes</span>
+                <input name="notes" maxlength="2000" placeholder="Review notes">
+              </label>
+              <button type="submit">Save review</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No pending records were found for the supported review types.</p>
+  {% endif %}
+</section>
+<section class="container section">
+  <h2>Indexed document review</h2>
+  <p>New document chunks are excluded from chatbot retrieval until an administrator marks the document version verified.</p>
+  {% if document_versions %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Document</th><th>Version</th><th>Chunks</th><th>Review</th></tr></thead>
+      <tbody>
+      {% for version, document in document_versions %}
+        <tr>
+          <td>{{ document.title }}</td>
+          <td>{{ version.version_number }}</td>
+          <td>{{ version.chunks|length }}</td>
+          <td>
+            <form method="post" action="{{ url_for('database_admin_review_document', version_id=version.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <select name="verification_status">
+                <option value="pending">Pending</option>
+                <option value="verified">Verified — allow chatbot retrieval</option>
+                <option value="rejected">Rejected</option>
+                <option value="outdated">Outdated</option>
+              </select>
+              <button type="submit">Save document review</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p>No documents have been indexed.</p>{% endif %}
+</section>
+<section class="container section">
+  <h2>Registered information sources</h2>
+  {% if sources %}
+  <ul>
+    {% for source in sources %}
+      <li><a href="{{ source.source_url }}" rel="noopener noreferrer">{{ source.document_title or source.source_url }}</a> — {{ source.source_organisation or "Organisation not recorded" }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p>No information sources have been registered.</p>{% endif %}
+</section>
+<section class="container section">
+  <h2>Recent import jobs</h2>
+  {% if jobs %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Job</th><th>Status</th><th>Started</th><th>Rows read</th><th>Created</th><th>Rejected</th><th>Error summary</th></tr></thead>
+      <tbody>
+      {% for job in jobs %}
+        <tr>
+          <td>{{ job.id }}</td><td>{{ job.status }}</td><td>{{ job.started_at or "—" }}</td>
+          <td>{{ job.rows_read if job.rows_read is not none else "—" }}</td>
+          <td>{{ job.rows_created if job.rows_created is not none else "—" }}</td>
+          <td>{{ job.rows_rejected if job.rows_rejected is not none else "—" }}</td>
+          <td>{{ job.error_summary or "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p>No import jobs have been run.</p>{% endif %}
+</section>
+{% endblock %}

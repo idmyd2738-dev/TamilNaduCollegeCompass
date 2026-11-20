@@ -1,66 +1,126 @@
 # CollegeHub
 
-CollegeHub is a Flask/Jinja2/SQLite prototype for exploring Tamil Nadu college streams, sample records, and general admission guidance. College and course records are fictional demo data; the site is not an official admissions authority and does not provide production authentication.
+CollegeHub is a Flask application backed by the universal SQLAlchemy database. With `DATABASE_URL` configured, public institution, programme, comparison, recommendation, and admission pages read from PostgreSQL; they do not fall back to `sample_colleges.db`. Without a URL, the same database layer uses the separate local `instance/collegehub.sqlite3` file.
 
-## Features
+## Current verified state
 
-- College directory with search, stream, district, course, category, ownership, facility, hostel, and verified annual-fee filters; sorting and pagination.
-- College profiles and browser-local shortlist/comparison.
-- Preference recommendations with an explainable data-match score (not admission probability).
-- Cutoff record filters and a chart limited to sourced, dated, verified numeric records.
-- Deterministic FAQ/chat responses with official links where available; no AI or RAG integration.
-- Local-only demo admin CRUD and source/verification workflows.
+- Neon PostgreSQL 18.7, database `collegehub`, and pgvector 0.8.7 have been connected and tested.
+- The dedicated `collegehub` schema is at Alembic revision `b7c41e98f2ad`; the unrelated `public.playing_with_neon` table is preserved.
+- The schema has 38 application tables, 156 indexes, 83 foreign keys, 50 unique constraints, 3 JSONB columns, and 1 VECTOR column.
+- Sixteen constituent-college names and the linked websites were extracted from Anna University's [official constituent-college directory](https://www.annauniv.edu/constituent_colleges.php) and imported with pending verification. The page does not provide the other profile fields, so those remain null.
+- No programmes, admission/cutoff records, fees, placements, facilities, embeddings, or verified institution records have been imported.
+- The AI/RAG chatbot and student authentication are not implemented. A basic single-administrator database review console is available only when explicitly configured with a password hash and session secret; it is not a multi-user or role-based production identity system.
 
-## Technology and structure
+See [docs/OFFICIAL_DATA_INGESTION.md](./docs/OFFICIAL_DATA_INGESTION.md) for the collector, evidence, and data limitations.
 
-- Python 3.12, Flask, Jinja2, SQLite, vanilla JavaScript, and CSS.
-- `app.py` contains routes, read-only public data access, and local demo admin handlers.
-- `init_db.py` applies idempotent, additive SQLite schema updates.
-- `index.py` exports the Flask application for the existing deployment entry point.
-- `templates/`, `static/`, and `tests/` contain UI, assets, and unit/integration tests.
+## Stack and structure
+
+- Python, Flask, Jinja2, SQLAlchemy 2.x, Alembic, psycopg 3, pgvector, SQLite, pytest, and vanilla JavaScript/CSS.
+- `app.py` provides database-backed public pages and JSON APIs. The earlier SQLite demonstration pages are reachable only during tests or with an explicit local `COLLEGEHUB_DEMO_MODE=1`; read-only deployments cannot enable that mode.
+- `models.py`, `database.py`, `repositories.py`, and `services.py` define the universal data layer.
+- `ingestion/anna_university.py` contains a bounded, repeatable importer for the official Anna University constituent-college page.
+- `alembic/` contains reviewed migrations. Application import does not run migrations.
+- `index.py` exports the Flask application. No deployment has been run from this checkout.
 
 ## Local setup (Windows PowerShell)
-
-Run from the project directory:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python init_db.py
+```
+
+Set `DATABASE_URL` to a **local development database** before applying migrations. Do not use a production URL for tests or local schema experimentation.
+
+```powershell
+$env:DATABASE_URL = "sqlite:///instance/collegehub-dev.sqlite3"
+python -m alembic upgrade head
 python app.py
 ```
 
-Open http://127.0.0.1:5000. The local sample admin portal is a demo, not an authenticated administrator system. Do not enter real credentials or personal information.
+For a local legacy UI demonstration only, set `COLLEGEHUB_DEMO_MODE=1`. This uses the bundled `sample_colleges.db`, which contains fictional records and is not used as a fallback in database mode. Do not enable this option in a deployed environment.
 
-## Environment variables
+The app loads `.env` for local development through `python-dotenv`. Never commit `.env` or expose its values.
 
-See [.env.example](./.env.example). For local development, the application retains a development-only fallback session key. For Vercel/read-only deployments, set a unique `COLLEGEHUB_SECRET_KEY` in the provider's environment settings; the application fails at startup if it is missing. Set `COLLEGEHUB_SECURE_COOKIES=1` when serving over HTTPS outside Vercel. Set `COLLEGEHUB_DEBUG=1` only for local debugging.
-
-## Database and deployment
-
-The bundled `sample_colleges.db` is opened read-only by public routes. The local admin portal can write to SQLite only outside read-only deployments. Admin access is disabled when `VERCEL`, `VERCEL_ENV`, or `COLLEGEHUB_READ_ONLY=1` is set. Serverless local-file writes are not persistent; the current project does not have a PostgreSQL adapter or database provider configured. Do not use this deployment for persistent production data.
-
-See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for deployment settings and limitations. `init_db.py` makes additive changes and preserves existing sample records; it does not run automatically during app import.
-
-## Verification and sample-data policy
-
-Verified records require a source, academic year, and last-verified date. Annual-fee filters use only verified fee records explicitly labelled annual, yearly, or per annum. Cutoff charts require a verified source and numeric value. Missing and unverified values are not fabricated; an empty verified chart is expected until evidence is entered.
-
-## Run tests
-
-From the project directory:
+To configure the database review console, set `COLLEGEHUB_SECRET_KEY` and `COLLEGEHUB_ADMIN_PASSWORD_HASH` in the deployment environment. Generate a hash without echoing the password:
 
 ```powershell
-python -m compileall -q app.py init_db.py index.py tests
-python -m pytest -q
+python -c "from getpass import getpass; from werkzeug.security import generate_password_hash; print(generate_password_hash(getpass()))"
 ```
 
-`tests/test_app.py` covers routes, filters, comparison, recommendations, cutoff verification, migration idempotence, and local admin CRUD. Selenium checks in `selenium_tests/` are separate browser-level tests and may require a running app and browser driver.
+The console supports source registration, the bounded Anna University directory import, and provenance status review. It does not provide user management, individual reviewer identities, rate limiting, or MFA. `COLLEGEHUB_READ_ONLY=1` disables the console. Do not configure this shared-password console as a substitute for an organization identity provider.
 
-## Known limitations
+## Official-data ingestion
 
-- Student/admin forms are demo flows; there are no persistent user accounts, password authentication, role management, or production-ready authorization.
-- Local admin write forms do not yet have CSRF tokens. The demo admin is disabled on read-only deployments, but the application must not be used as a production admin system.
-- PostgreSQL support, a migration framework, server-persisted student data, activity logs, and RAG/LLM integration are not implemented.
-- Sample records are fictional and do not provide verified current fees, cutoffs, facilities, or hostel information.
+The collector checks the source's `robots.txt`, uses a bounded HTTP request, validates the source host and content type, parses only numbered directory rows, records a SHA-256 reference and import job, and imports records as `pending`. It skips existing institution names rather than overwriting them.
+
+```powershell
+python -m ingestion.anna_university
+```
+
+The command uses the configured `DATABASE_URL` and requires the migrations to be current. See the ingestion guide for what it does and does not establish.
+
+## Tests
+
+Run the non-Selenium project suite:
+
+```powershell
+python -m compileall -q app.py init_db.py index.py ingestion tests
+python -m pytest -q tests
+```
+
+The optional PostgreSQL compatibility test requires a dedicated test database via `TEST_POSTGRESQL_DATABASE_URL`. Do not point that variable at production. Tests in `tests/` use isolated temporary databases or the test-only demo mode; `selenium_tests/` is separate and was not changed.
+
+## Limitations
+
+- The imported 16-name directory is not a statewide engineering catalogue. TNEA did not expose a public structured institution/seat/course export in the pages examined.
+- Public college search is database-backed, but recommendations require eligibility and comparable admission data that is not yet available. Cutoff analytics has no records to chart.
+- The chatbot interface honestly reports that RAG and an LLM provider are not available. No API credentials, embeddings, or fake answers are included.
+- Student authentication is disabled. The database review console is a limited single-admin workflow; the legacy demo portal is not authentication or production admin functionality.
+- Deployment compatibility and the live deployment have not been tested. See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md).
+
+
+## AI chatbot and official-document indexing
+
+The database-mode `/chat` page now has a provider-configurable RAG integration. Configure
+`COLLEGEHUB_AI_API_KEY`, `COLLEGEHUB_AI_BASE_URL`, `COLLEGEHUB_AI_CHAT_MODEL`, and
+`COLLEGEHUB_AI_EMBEDDING_MODEL` in the server environment. The provider must implement
+OpenAI-compatible `/embeddings` and `/chat/completions` endpoints. No key is bundled.
+
+Register an official source in `/admin`, then upload a PDF, HTML, CSV, TXT, or Markdown
+document from the same dashboard. The app extracts text, splits it into chunks, generates
+embeddings, and stores chunks/vectors in the existing `documents`, `document_versions`,
+`document_chunks`, and `embeddings` tables. The original uploaded binary is not retained;
+the extracted text and source metadata are stored in the database. PDF extraction requires
+`pypdf` (included in requirements).
+
+The chatbot refuses to answer when the AI provider is not configured or no relevant
+indexed document is found. Citations show the registered source URL, title, academic year,
+and verification status. Documents uploaded through this workflow are marked pending in
+chunk metadata; this is not a substitute for reviewing the source or verifying extracted
+facts. The current retrieval implementation ranks stored vectors in application memory;
+for a large corpus, use a PostgreSQL pgvector distance query and an appropriate vector
+index before scaling.
+
+This adds the RAG execution path, not statewide official coverage. You still need to
+collect, upload, and review current official prospectuses, seat matrices, cutoff PDFs,
+fee schedules, and institution documents. AI provider usage may incur charges.
+
+
+### TNGASA 2026 directory import
+
+The administrator dashboard includes a bounded importer for the official TNGASA 2026
+college-information PDF. It extracts the seven-digit college code, college name, and
+district; it stores available NAAC grades as pending accreditation records. The source's
+2025 admit percentage, NIRF label and male/female seat-availability text are retained in
+provenance notes only. They are deliberately not treated as cutoff marks or programme
+seat matrices. The parser fails closed if it cannot extract a plausible statewide list.
+
+Run manually after current migrations:
+
+```powershell
+python -m ingestion.tngasa_2026
+```
+
+The importer skips existing official college codes and does not overwrite records. New
+institutions and accreditation facts remain pending administrator review.

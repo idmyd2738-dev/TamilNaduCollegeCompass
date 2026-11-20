@@ -1,0 +1,18 @@
+{% extends "database/base.html" %}
+{% block title %}Recommendations · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><div class="eyebrow">DATA-BACKED EXPLORATION</div><h1>Explore verified <em>matches.</em></h1><p>CollegeHub will not estimate admission likelihood or recommend an institution without suitable verified programme and eligibility evidence.</p></div></section>
+<section class="container feature-page">
+  <form class="preference-form" method="get" action="/recommendations">
+    <label>Programme<input name="program" value="{{ selected_program }}" maxlength="200"></label>
+    <label>Preferred district<select name="district"><option value="">Any district</option>{% for item in districts %}<option value="{{ item }}" {% if selected_district==item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Category<select name="category"><option value="">Any category</option>{% for item in categories %}<option value="{{ item.code }}" {% if selected_category==item.code %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+    <label>Institution type<select name="type"><option value="">Any type</option>{% for item in institution_types %}<option value="{{ item.code }}" {% if selected_type==item.code %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+    <div class="preference-actions"><button class="button-primary" type="submit">Find verified candidates →</button><a class="button-secondary" href="/recommendations">Clear</a></div>
+  </form>
+  <div class="recommendation-notice" role="note"><strong>Admission estimates are not available</strong><span>Recommendations require current verified eligibility criteria and comparable historical admission measurements. A preference match alone is not an admission prediction.</span></div>
+  {% if has_preferences and results %}<div class="recommendation-list">{% for institution in results %}<article class="recommendation-card"><div class="recommendation-content"><h2><a href="/colleges/{{ institution.id }}">{{ institution.official_name }}</a></h2><p>{{ institution.category.name }} · {{ institution.district or 'District not provided' }}</p><p>Candidate match only; eligibility and admission likelihood are not established.</p></div></article>{% endfor %}</div>
+  {% elif has_preferences %}<div class="empty-state"><h2>Not enough verified data for recommendations</h2><p>No institution meets the requested filters with verified institutional and programme records. Try again when official data is available.</p></div>
+  {% else %}<div class="empty-state"><h2>Choose a preference to begin</h2><p>Recommendations will appear only when supported by verified records.</p></div>{% endif %}
+</section>
+{% endblock %}

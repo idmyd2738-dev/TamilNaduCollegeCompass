@@ -1,0 +1,31 @@
+{% extends "database/base.html" %}
+{% block title %}CollegeHub · Sourced college information{% endblock %}
+{% block content %}
+<section class="page-hero">
+  <div class="container">
+    <div class="eyebrow">TAMIL NADU HIGHER EDUCATION</div>
+    <h1>Explore colleges with <em>clear sources.</em></h1>
+    <p>Search institutional records, programmes and admission information stored in CollegeHub. Missing facts stay missing; verification status and provenance are shown with records.</p>
+    <div class="hero-actions"><a class="button-primary" href="/colleges">Explore institutions →</a><a class="button-secondary" href="/chat">Chatbot status</a></div>
+  </div>
+</section>
+<section class="container section">
+  <div class="section-head"><div><div class="eyebrow">AVAILABLE RECORDS</div><h2>{{ institution_count }} institution records</h2></div></div>
+  {% if categories %}
+  <div class="stream-grid">
+    {% for category in categories %}
+    <a class="stream-card" href="/college/{{ category.code }}">
+      <span class="stream-count">{{ category.institution_count }} records</span>
+      <h3>{{ category.name }}</h3>
+      <span class="card-arrow" aria-hidden="true">↗</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><h2>Institution categories are not initialized</h2><p>Apply the reviewed database migration before using the explorer.</p></div>
+  {% endif %}
+  {% if institution_count == 0 %}
+  <div class="empty-state"><h2>Official institution data is not available yet</h2><p>No institution records have been imported. CollegeHub will not substitute fictional records.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

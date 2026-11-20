@@ -1,0 +1,97 @@
+{% extends "database/base.html" %}
+{% block title %}CollegeHub AI assistant{% endblock %}
+{% block content %}
+<section class="page-hero">
+  <div class="container">
+    <div class="eyebrow">COLLEGEHUB AI ASSISTANT</div>
+    <h1>Answers grounded in <em>official documents.</em></h1>
+    <p>Answers are generated from indexed documents. Check the linked source and academic year before making admission decisions.</p>
+  </div>
+</section>
+<section class="container section">
+  {% if not chatbot_available %}
+    <div class="empty-state">
+      <h2>AI service is not configured</h2>
+      <p>The AI-powered chatbot is not yet available until the chat and embedding provider settings are configured and official documents are indexed from the administrator dashboard. Until then, this page will not invent answers.</p>
+    </div>
+  {% else %}
+    <div class="card" style="max-width:850px;margin:auto">
+      <div id="chat-log" aria-live="polite" style="min-height:220px;max-height:520px;overflow:auto;padding:1rem">
+        <p><strong>CollegeHub:</strong> Ask a question about the official documents currently indexed.</p>
+      </div>
+      <form id="chat-form" style="display:flex;gap:.75rem;flex-wrap:wrap;padding:1rem">
+        <label for="chat-message" class="sr-only">Your question</label>
+        <textarea id="chat-message" maxlength="4000" required rows="3" style="flex:1;min-width:220px" placeholder="Ask about courses, admissions, fees or counselling..."></textarea>
+        <button id="chat-send" type="submit">Send</button>
+      </form>
+      <p id="chat-status" role="status" style="padding:0 1rem"></p>
+    </div>
+  {% endif %}
+</section>
+{% if chatbot_available %}
+<script>
+(() => {
+  const form = document.getElementById("chat-form");
+  const input = document.getElementById("chat-message");
+  const log = document.getElementById("chat-log");
+  const status = document.getElementById("chat-status");
+  const send = document.getElementById("chat-send");
+  function addMessage(label, text) {
+    const p = document.createElement("p");
+    const strong = document.createElement("strong");
+    strong.textContent = label + ": ";
+    p.append(strong, document.createTextNode(text));
+    log.appendChild(p);
+    log.scrollTop = log.scrollHeight;
+  }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = input.value.trim();
+    if (!message) return;
+    addMessage("You", message);
+    input.value = "";
+    send.disabled = true;
+    status.textContent = "Searching indexed official documents and generating an answer...";
+    try {
+      const response = await fetch("{{ url_for('database_chat_api') }}", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({message})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The request failed.");
+      addMessage("CollegeHub", data.answer);
+      if (data.citations && data.citations.length) {
+        const box = document.createElement("div");
+        const heading = document.createElement("strong");
+        heading.textContent = "Sources";
+        box.appendChild(heading);
+        const list = document.createElement("ol");
+        data.citations.forEach((source) => {
+          const item = document.createElement("li");
+          const link = document.createElement("a");
+          link.href = source.url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = source.title + (source.academic_year ? " (" + source.academic_year + ")" : "");
+          item.appendChild(link);
+          const statusText = document.createTextNode(" — " + source.verification_status);
+          item.appendChild(statusText);
+          list.appendChild(item);
+        });
+        box.appendChild(list);
+        log.appendChild(box);
+      }
+    } catch (error) {
+      addMessage("CollegeHub", error.message);
+    } finally {
+      send.disabled = false;
+      status.textContent = "";
+      log.scrollTop = log.scrollHeight;
+      input.focus();
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

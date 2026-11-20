@@ -1,0 +1,11 @@
+{% extends "database/base.html" %}
+{% block title %}{{ category.name }} institutions · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><a class="back-link" href="/college">← Categories</a><div class="eyebrow">INSTITUTION CATEGORY</div><h1>{{ category.name }}</h1><p>Only institution records stored in the database are shown.</p></div></section>
+<section class="container section">
+  {% if institutions %}<div class="college-grid">{% for institution in institutions %}
+  <article class="college-card"><div class="college-banner"><span>{{ category.name }}</span></div><div class="college-card-body"><h2><a href="/colleges/{{ institution.id }}">{{ institution.official_name }}</a></h2><p>{{ institution.city or 'City not provided' }}{% if institution.district %}, {{ institution.district }}{% endif %}</p><p>{{ institution.institution_type.name }} · {{ institution.provenance.verification_status|title }}</p></div></article>
+  {% endfor %}</div>{% else %}<div class="empty-state"><h2>No institution records are available</h2><p>Official data has not been imported for {{ category.name }}.</p></div>{% endif %}
+  <a class="button-primary" href="/colleges?category={{ category.code|urlencode }}">Browse this category →</a>
+</section>
+{% endblock %}

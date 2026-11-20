@@ -1,59 +1,42 @@
 # CollegeHub implementation report
 
-Implementation scope: incremental upgrade of the existing Flask prototype; no replacement project or fabricated college data.
+Date: 19 November 2026.
 
-## Implemented
+## Delivered
 
-- Recommendation page at `/recommendations`: accepts course, district, annual budget, college type, hostel, and facility preferences; ranks the database records by equally weighted preference matches and explains every result. Budget matching uses only verified fee records explicitly labelled annual/yearly/per annum. Unknown verified data is called out rather than treated as a match. Scores are not admission predictions.
-- Cutoff page at `/cutoffs`: filters by college, course, and academic year. It shows available cutoff rows and sources; chart bars are limited to verified records with source name/URL, academic year, last-verified date, and numeric values.
-- College explorer now supports facility filters and verified annual-fee filters/sorting. Existing selections are retained in pagination links. Fee comparisons no longer use unverified fee values.
-- Deployed/read-only configurations reject demo admin login and admin routes. Session cookies use HttpOnly and SameSite=Lax; Secure is enabled for production Vercel or `COLLEGEHUB_SECURE_COOKIES=1`. A deployed app requires `COLLEGEHUB_SECRET_KEY`; Flask's debugger is opt-in via `COLLEGEHUB_DEBUG=1`.
-- Added project audit and deployment documentation, this report, and `.env.example`.
+- Database-mode public pages now query the universal database instead of the fictional bundled SQLite database.
+- Directory, institution profile, comparison, and typed admission-record pages use SQLAlchemy models and repository/service queries.
+- Institution and programme APIs include total/limit/offset information; admission and placement APIs expose sourced data and verification status.
+- Health status checks the configured database connection.
+- Canned chat, student accounts, and legacy SQLite admin routes are disabled in database mode. An optional single-admin SQL-backed review console requires `COLLEGEHUB_ADMIN_PASSWORD_HASH` and `COLLEGEHUB_SECRET_KEY`; it includes CSRF-protected source registration, provenance review, and the bounded Anna University import.
+- Added an additive `unknown` institution-type lookup migration.
+- Added a restricted Anna University source-specific ingestion pipeline and imported 16 constituent-college directory entries as pending verification.
+- Updated project, database, migration, deployment, and data-ingestion documentation.
 
-## Files created
+## Live data evidence
 
-- `PROJECT_AUDIT.md`
-- `IMPLEMENTATION_REPORT.md`
-- `DEPLOYMENT_GUIDE.md`
-- `.env.example`
-- `templates/recommendations.html`
-- `templates/cutoffs.html`
+The Anna University directory was fetched from `https://www.annauniv.edu/constituent_colleges.php`; all 16 numbered college rows and their linked websites were extracted. The Neon `collegehub` schema now records the source, fetched-content SHA-256 reference, one completed import job, and 16 pending institution/provenance rows. Districts, cities, programme details, fees, admissions, placement figures, and verification dates were not present in the extracted directory and remain null or absent.
 
-## Files modified
+TNEA, Tamil Nadu Medical Selection Committee, TANUVAS, TNAU, and TNGASA pages were also investigated. No additional facts were imported from them in this iteration. Further source findings and access limitations are in `docs/OFFICIAL_DATA_INGESTION.md`.
 
-- `app.py`
-- `templates/base.html`
-- `templates/colleges.html`
-- `templates/compare.html`
-- `templates/home.html`
-- `static/css/style.css`
-- `README.md`
-- `tests/test_app.py`
+## Not delivered / not claimed
 
-## Database changes
+- Full statewide official coverage across all four categories.
+- Complete source registry and generalized HTML/PDF/CSV ingestion or conflict resolution. The admin review console is limited to the supported factual record types and does not provide user roles, MFA, individual reviewer identity, or rate limiting.
+- Admission-likelihood/recommendation engine, cutoff chart analytics, fee/placement datasets, or comparison of those unavailable values.
+- AI chatbot, embeddings, RAG, or citation validation.
+- Organizational admin identity and authorization, and student identity.
+- Vercel compatibility, successful deployment, push, or deployment readiness.
 
-No schema or bundled database changes were made. Existing SQLite source, fee, cutoff, and verification tables were reused. Annual fee matching requires a verified record whose fee type explicitly identifies annual, yearly, or per-annum billing.
-
-## Security
-
-Deployed session secrets are no longer silently defaulted; the app fails fast if the deployment secret is absent. Session cookies have HttpOnly/SameSite settings. Demo admin handlers are unavailable on read-only deployments. This does not turn the local demo portal into production authentication: local admin forms still lack CSRF tokens, users are not real authenticated identities, and admin actions have no durable activity log.
+These features remain explicitly unavailable rather than being represented by mock data or canned answers.
 
 ## Validation
 
-Python syntax compilation passed. The full suite passed: `32 passed, 34 subtests passed` in 113.77 seconds. The focused Flask suite passed: `21 passed, 18 subtests passed`. `git diff --check` reported no whitespace errors. Baseline before edits: `27 passed, 32 subtests passed`.
-
-## Not completed
-
-- Production user authentication, authorization, CSRF protection, user management, and activity logs.
-- PostgreSQL adapter/provider and persistent deployment migrations.
-- Independent CRUD management for sources.
-- Verified production datasets; the current sample database has no fee or cutoff records.
-- AI/RAG integration, which remains explicitly unimplemented.
-
-## Deployment and Git status
-
-Implementation commit: `697878c33580e12f6f224c27eb3124b5fc5a5aab` on branch `main` (remote `origin`). A documentation follow-up records this status. Pre-existing untracked `selenium_tests/` files were not staged.
-
-The existing live site currently reports `{"mode":"read-only demo","status":"ok"}` at `/health`; it does not contain these local changes. I did not push: this change intentionally fails at startup on Vercel when `COLLEGEHUB_SECRET_KEY` is absent, and the provider's environment settings cannot be inspected from this checkout. Pushing without confirming the secret could replace the currently working deployment with a failing one.
-
-Before pushing, add a strong `COLLEGEHUB_SECRET_KEY` in Vercel project settings for each deployment environment, verify it is available to the deployment, then run `git push origin main`. Do not send the secret in chat or commit it to the repository.
+- `.venv\Scripts\python.exe -m pytest -q tests`: 35 passed, 1 skipped, 20 subtests passed.
+- Python compilation passed.
+- The database admin login, CSRF guard, dashboard, and provenance-review flow passed an isolated SQLite test.
+- Live `alembic check` passed at revision `b7c41e98f2ad`.
+- Live Neon public-route and JSON API smoke tests passed against the 16 imported institution records.
+- ORM CRUD and transaction rollback smoke test passed; no validation college records remain.
+- The optional automated PostgreSQL compatibility suite was skipped because a separate test-only PostgreSQL database URL was not configured.
+- No deployment or push was performed. `selenium_tests/` and `public.playing_with_neon` were not modified.

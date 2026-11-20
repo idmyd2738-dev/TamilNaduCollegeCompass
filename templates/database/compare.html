@@ -1,0 +1,17 @@
+{% extends "database/base.html" %}
+{% block title %}Institution comparison · CollegeHub{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><div class="eyebrow">INSTITUTION COMPARISON</div><h1>Compare <em>available records.</em></h1><p>Use comma-separated institution IDs in the URL or select records from the directory. Missing information remains explicit.</p></div></section>
+<section class="container compare-page">
+  {% if institutions|length >= 2 %}
+  <div class="compare-table-wrap"><table class="compare-table"><thead><tr><th>Information</th>{% for institution in institutions %}<th><a href="/colleges/{{ institution.id }}">{{ institution.official_name }}</a></th>{% endfor %}</tr></thead><tbody>
+  <tr><th>Category</th>{% for i in institutions %}<td>{{ i.category.name }}</td>{% endfor %}</tr>
+  <tr><th>Institution type</th>{% for i in institutions %}<td>{{ i.institution_type.name }}</td>{% endfor %}</tr>
+  <tr><th>District</th>{% for i in institutions %}<td>{{ i.district or 'Not provided' }}</td>{% endfor %}</tr>
+  <tr><th>Programmes</th>{% for i in institutions %}<td>{% if i.programs %}{% for p in i.programs %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Not available{% endif %}</td>{% endfor %}</tr>
+  <tr><th>Accreditation</th>{% for i in institutions %}<td>{% if i.accreditations %}{% for a in i.accreditations %}{{ a.agency }}: {{ a.grade or 'Grade not provided' }}{% if not loop.last %}; {% endif %}{% endfor %}{% else %}Not available{% endif %}</td>{% endfor %}</tr>
+  <tr><th>Verification</th>{% for i in institutions %}<td>{{ i.provenance.verification_status|title }}{% if i.provenance.source and i.provenance.source.source_url %}<br><a href="{{ i.provenance.source.source_url }}" target="_blank" rel="noopener noreferrer">Source ↗</a>{% endif %}</td>{% endfor %}</tr>
+  </tbody></table></div>
+  {% else %}<div class="empty-state"><h2>Select at least two institutions</h2><p>Use <code>/compare?ids=1,2</code> with institution IDs returned by the directory or API.</p><a class="button-primary" href="/colleges">Browse database records</a></div>{% endif %}
+</section>
+{% endblock %}

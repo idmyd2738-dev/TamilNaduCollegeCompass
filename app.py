@@ -1,13 +1,55 @@
+import hmac
+import hashlib
 import math
 import os
+import secrets
 import sqlite3
-from contextlib import closing
-from datetime import timedelta
+from contextlib import closing, contextmanager
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, abort, current_app, jsonify, redirect, render_template, request, session, url_for
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
+from werkzeug.security import check_password_hash
+from werkzeug.utils import secure_filename
+
+from database import database
+from models import (
+    AcademicYear,
+    AdmissionRecord,
+    DataImportJob,
+    Document,
+    DocumentVersion,
+    DocumentChunk,
+    Conversation,
+    Message,
+    Facility,
+    FeeComponent,
+    FeeStructure,
+    InformationSource,
+    Institution,
+    InstitutionCategory,
+    InstitutionFacility,
+    InstitutionType,
+    PlacementReport,
+    Program,
+    RecordProvenance,
+    SourceDocument,
+)
+from ai_service import AIConfigurationError, AIProviderError, ai_is_configured, answer_question, ingest_document
+
+from services import (
+    AdmissionService,
+    FeeService,
+    InstitutionService,
+    ProgramService,
+    RecommendationService,
+    VerificationService,
+    VerificationStatus,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "sample_colleges.db"
@@ -24,6 +66,12 @@ VERIFICATION_STATES = {
     "pending_verification",
     "information_not_verified",
     "outdated",
+}
+ADMIN_REVIEW_STATUSES: dict[str, VerificationStatus] = {
+    "pending": "pending",
+    "verified": "verified",
+    "rejected": "rejected",
+    "outdated": "outdated",
 }
 ADMIN_RECORDS = {
     "fees": {
@@ -69,7 +117,9 @@ ADMIN_RECORDS = {
 }
 
 app = Flask(__name__)
+app.config["UNIVERSAL_DATABASE"] = database
 secret_key = os.environ.get("COLLEGEHUB_SECRET_KEY")
+app.config["COLLEGEHUB_SECRET_CONFIGURED"] = bool(secret_key)
 if (os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV")) and not secret_key:
     raise RuntimeError("COLLEGEHUB_SECRET_KEY must be configured for deployed sessions.")
 app.config["SECRET_KEY"] = secret_key or "collegehub-local-demo-session-key"
@@ -140,6 +190,15 @@ def read_only_deployment():
     )
 
 
+def legacy_demo_enabled():
+    if current_app.config.get("TESTING"):
+        return True
+    return bool(
+        not read_only_deployment()
+        and os.environ.get("COLLEGEHUB_DEMO_MODE") == "1"
+    )
+
+
 def get_writable_db():
     if read_only_deployment():
         abort(503, description="Database edits are disabled in read-only deployments.")
@@ -154,15 +213,47 @@ def admin_required(view):
     def wrapped(*args, **kwargs):
         if read_only_deployment():
             abort(503, description="The demo administrator is disabled in read-only deployments.")
+        if not legacy_demo_enabled():
+            abort(503, description="The legacy demo administrator is not available in database mode.")
         if not session.get("collegehub_demo_admin"):
             return redirect(url_for("admin_login", next=request.path))
         return view(*args, **kwargs)
     return wrapped
 
 
+def database_admin_enabled():
+    return bool(
+        os.environ.get("COLLEGEHUB_ADMIN_PASSWORD_HASH")
+        and current_app.config.get("COLLEGEHUB_SECRET_CONFIGURED")
+        and os.environ.get("COLLEGEHUB_READ_ONLY") != "1"
+    )
+
+
+def database_admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not database_admin_enabled():
+            abort(503, description="Database administration is not configured.")
+        if not session.get("collegehub_admin"):
+            return redirect(url_for("admin_login", next=request.path))
+        if not session.get("collegehub_admin_csrf"):
+            abort(403, description="Administrator session is missing its CSRF token.")
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def validate_admin_csrf():
+    expected = session.get("collegehub_admin_csrf", "")
+    supplied = request.form.get("csrf_token", "")
+    if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+        abort(400, description="Invalid or missing CSRF token.")
+
+
 def student_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
+        if not legacy_demo_enabled():
+            abort(503, description="Student accounts are not configured.")
         if not session.get("collegehub_demo_student"):
             return redirect(url_for("student_login", next=request.path))
         return view(*args, **kwargs)
@@ -186,8 +277,40 @@ def inject_globals():
     return {"site_name": "CollegeHub"}
 
 
+def database_category_summary(db_session):
+    rows = db_session.execute(
+        select(
+            InstitutionCategory.code,
+            InstitutionCategory.name,
+            func.count(Institution.id).label("institution_count"),
+        )
+        .outerjoin(Institution, Institution.category_id == InstitutionCategory.id)
+        .group_by(InstitutionCategory.id)
+        .order_by(InstitutionCategory.name)
+    ).all()
+    return [
+        {
+            "code": row.code,
+            "name": row.name,
+            "institution_count": row.institution_count,
+        }
+        for row in rows
+    ]
+
+
 @app.get("/")
 def home():
+    if not legacy_demo_enabled():
+        with universal_session() as db_session:
+            categories = database_category_summary(db_session)
+            institution_count = db_session.scalar(
+                select(func.count()).select_from(Institution)
+            )
+        return render_template(
+            "database/home.html",
+            categories=categories,
+            institution_count=institution_count or 0,
+        )
     with closing(get_db()) as db:
         streams = db.execute("""
             SELECT s.slug, s.name, s.icon, COUNT(c.id) AS college_count
@@ -200,6 +323,10 @@ def home():
 
 @app.get("/college")
 def college_home():
+    if not legacy_demo_enabled():
+        with universal_session() as db_session:
+            categories = database_category_summary(db_session)
+        return render_template("database/streams.html", categories=categories)
     with closing(get_db()) as db:
         streams = db.execute("""
             SELECT s.slug, s.name, s.icon, COUNT(c.id) AS college_count
@@ -211,6 +338,19 @@ def college_home():
 
 @app.get("/college/<string:stream_slug>")
 def stream_page(stream_slug):
+    if not legacy_demo_enabled():
+        with universal_session() as db_session:
+            category = db_session.scalar(
+                select(InstitutionCategory).where(InstitutionCategory.code == stream_slug)
+            )
+            if category is None:
+                abort(404)
+            institutions = InstitutionService(db_session).search(
+                category=category.code, limit=6
+            )
+        return render_template(
+            "database/stream.html", category=category, institutions=institutions
+        )
     with closing(get_db()) as db:
         stream = db.execute("SELECT * FROM streams WHERE slug=?", (stream_slug,)).fetchone()
         if stream is None:
@@ -235,6 +375,8 @@ def stream_page(stream_slug):
 
 @app.get("/colleges")
 def colleges():
+    if not legacy_demo_enabled():
+        return database_colleges_page()
     q = request.args.get("q", "").strip()
     stream = request.args.get("stream", "").strip()
     district = request.args.get("district", "").strip()
@@ -331,6 +473,8 @@ def colleges():
 
 @app.get("/colleges/<int:college_id>")
 def college_detail(college_id):
+    if not legacy_demo_enabled():
+        return database_college_detail_page(college_id)
     with closing(get_db()) as db:
         college = db.execute("""
             SELECT c.*, s.name AS stream_name, s.slug AS stream_slug
@@ -366,6 +510,8 @@ def college_detail(college_id):
 
 @app.get("/compare")
 def compare_colleges():
+    if not legacy_demo_enabled():
+        return database_compare_page()
     raw_ids = request.args.get("ids", "")
     ids = []
     for raw_id in raw_ids.split(","):
@@ -398,6 +544,8 @@ def compare_colleges():
 
 @app.get("/recommendations")
 def recommendations():
+    if not legacy_demo_enabled():
+        return database_recommendations_page()
     course = request.args.get("course", "").strip()
     district = request.args.get("district", "").strip()
     ownership = request.args.get("ownership", "").strip()
@@ -537,6 +685,8 @@ def recommendations():
 
 @app.get("/cutoffs")
 def cutoff_analytics():
+    if not legacy_demo_enabled():
+        return database_cutoffs_page()
     college_id_raw = request.args.get("college", "").strip()
     course = request.args.get("course", "").strip()
     academic_year = request.args.get("year", "").strip()
@@ -616,20 +766,363 @@ def cutoff_analytics():
     )
 
 
+def database_admin_dashboard():
+    pending = []
+    record_specs = (
+        (Institution, "institution", "official_name"),
+        (Program, "program", "name"),
+        (AdmissionRecord, "admission_record", "measurement_type"),
+        (FeeStructure, "fee_structure", "notes"),
+        (FeeComponent, "fee_component", "name"),
+        (PlacementReport, "placement_report", "reporting_year"),
+    )
+    with universal_session() as db_session:
+        counts = {
+            "institutions": db_session.scalar(
+                select(func.count()).select_from(Institution)
+            ) or 0,
+            "programs": db_session.scalar(
+                select(func.count()).select_from(Program)
+            ) or 0,
+            "admissions": db_session.scalar(
+                select(func.count()).select_from(AdmissionRecord)
+            ) or 0,
+            "fees": db_session.scalar(
+                select(func.count()).select_from(FeeComponent)
+            ) or 0,
+            "cutoffs": db_session.scalar(
+                select(func.count()).select_from(AdmissionRecord).where(
+                    AdmissionRecord.measurement_type == "cutoff_score"
+                )
+            ) or 0,
+            "placements": db_session.scalar(
+                select(func.count()).select_from(PlacementReport)
+            ) or 0,
+            "verified": db_session.scalar(
+                select(func.count()).select_from(RecordProvenance).where(
+                    RecordProvenance.verification_status == "verified"
+                )
+            ) or 0,
+            "pending": db_session.scalar(
+                select(func.count()).select_from(RecordProvenance).where(
+                    RecordProvenance.verification_status.in_(("unverified", "pending"))
+                )
+            ) or 0,
+            "documents": db_session.scalar(
+                select(func.count()).select_from(Document)
+            ) or 0,
+            "source_documents": db_session.scalar(
+                select(func.count()).select_from(SourceDocument)
+            ) or 0,
+            "import_jobs": db_session.scalar(
+                select(func.count()).select_from(DataImportJob)
+            ) or 0,
+            "failed_jobs": db_session.scalar(
+                select(func.count()).select_from(DataImportJob).where(
+                    DataImportJob.status == "failed"
+                )
+            ) or 0,
+        }
+        for model, record_type, label_field in record_specs:
+            remaining = 100 - len(pending)
+            if remaining <= 0:
+                break
+            statement = (
+                select(model)
+                .join(RecordProvenance, model.provenance_id == RecordProvenance.id)
+                .where(
+                    RecordProvenance.verification_status.in_(("unverified", "pending"))
+                )
+                .order_by(model.id)
+                .limit(remaining)
+            )
+            for record in db_session.scalars(statement):
+                provenance = record.provenance
+                label = getattr(record, label_field, None)
+                if record_type == "admission_record":
+                    label = f"{record.program.name} - {record.measurement_type}"
+                elif record_type == "fee_structure":
+                    label = f"Fee structure #{record.id}"
+                pending.append({
+                    "type": record_type,
+                    "id": provenance.id,
+                    "label": str(label or f"{record_type} #{record.id}"),
+                    "status": provenance.verification_status,
+                    "source": provenance.source,
+                })
+        sources = db_session.scalars(
+            select(InformationSource).order_by(InformationSource.id.desc()).limit(200)
+        ).all()
+        jobs = db_session.scalars(
+            select(DataImportJob).order_by(DataImportJob.id.desc()).limit(100)
+        ).all()
+        document_versions = db_session.execute(
+            select(DocumentVersion, Document)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .order_by(DocumentVersion.id.desc())
+            .limit(100)
+        ).all()
+        return render_template(
+            "database/admin_dashboard.html",
+            counts=counts,
+            pending=pending,
+            sources=sources,
+            jobs=jobs,
+            document_versions=document_versions,
+            csrf_token=session["collegehub_admin_csrf"],
+        )
+
+
+@app.post("/admin/sources")
+@database_admin_required
+def database_admin_add_source():
+    validate_admin_csrf()
+    source_url = validate_web_url(request.form.get("source_url", ""), "Source URL")
+    organisation = request.form.get("source_organisation", "").strip()
+    title = request.form.get("document_title", "").strip()
+    source_type = request.form.get("source_document_type", "").strip()
+    if not source_url or not organisation or not title:
+        abort(400, description="Source URL, organisation, and title are required.")
+    if len(organisation) > 255 or len(title) > 500 or len(source_type) > 80:
+        abort(400, description="Source fields exceed their maximum lengths.")
+    with universal_session() as db_session:
+        with db_session.begin():
+            existing = db_session.scalar(
+                select(InformationSource.id).where(
+                    InformationSource.source_url == source_url
+                )
+            )
+            if existing is not None:
+                abort(409, description="This source URL is already registered.")
+            db_session.add(InformationSource(
+                source_url=source_url,
+                source_organisation=organisation,
+                document_title=title,
+                source_document_type=source_type or None,
+            ))
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/ingest/anna-university")
+@database_admin_required
+def database_admin_ingest_anna_university():
+    validate_admin_csrf()
+    from ingestion.anna_university import ingest_constituent_colleges
+
+    try:
+        result = ingest_constituent_colleges(
+            database_instance=current_app.config["UNIVERSAL_DATABASE"]
+        )
+    except (OSError, PermissionError, SQLAlchemyError, UnicodeError, ValueError, RuntimeError) as error:
+        current_app.logger.error(
+            "Official-source ingestion failed (%s).", type(error).__name__
+        )
+        abort(502, description="Ingestion failed. Review the recorded import-job status.")
+    current_app.logger.info(
+        "Official-source import job %s completed: %s created, %s duplicates skipped.",
+        result.job_id,
+        result.rows_created,
+        result.duplicates_skipped,
+    )
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/ingest/tngasa-2026")
+@database_admin_required
+def database_admin_ingest_tngasa_2026():
+    validate_admin_csrf()
+    from ingestion.tngasa_2026 import ingest_tngasa_2026
+
+    try:
+        result = ingest_tngasa_2026(
+            database_instance=current_app.config["UNIVERSAL_DATABASE"]
+        )
+    except (OSError, PermissionError, SQLAlchemyError, UnicodeError, ValueError, RuntimeError) as error:
+        current_app.logger.error(
+            "TNGASA official-source ingestion failed (%s).", type(error).__name__
+        )
+        abort(502, description="TNGASA import failed. No partial records should be treated as verified.")
+    current_app.logger.info(
+        "TNGASA import job %s completed: %s created, %s duplicates skipped.",
+        result["job_id"], result["rows_created"], result["duplicates_skipped"],
+    )
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/provenance/<int:provenance_id>/review")
+@database_admin_required
+def database_admin_review_provenance(provenance_id):
+    validate_admin_csrf()
+    status = ADMIN_REVIEW_STATUSES.get(request.form.get("verification_status", ""))
+    if status is None:
+        abort(400, description="Unsupported verification status.")
+    notes = request.form.get("notes", "").strip()
+    if len(notes) > 2000:
+        abort(400, description="Review notes must be 2000 characters or fewer.")
+    try:
+        with universal_session() as db_session:
+            with db_session.begin():
+                VerificationService(db_session).record_review(
+                    provenance_id,
+                    status,
+                    notes=notes or None,
+                    verified_at=datetime.now(timezone.utc) if status == "verified" else None,
+                )
+    except ValueError as error:
+        abort(400, description=str(error))
+    except LookupError:
+        abort(404, description="Provenance record not found.")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/documents/<int:version_id>/review")
+@database_admin_required
+def database_admin_review_document(version_id):
+    validate_admin_csrf()
+    status = request.form.get("verification_status", "")
+    if status not in {"pending", "verified", "rejected", "outdated"}:
+        abort(400, description="Unsupported document verification status.")
+    with universal_session() as db_session:
+        version = db_session.get(DocumentVersion, version_id)
+        if version is None:
+            abort(404, description="Document version not found.")
+        chunks = db_session.scalars(
+            select(DocumentChunk).where(DocumentChunk.document_version_id == version_id)
+        ).all()
+        for chunk in chunks:
+            metadata = dict(chunk.chunk_metadata or {})
+            metadata["verification_status"] = status
+            metadata["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+            metadata["reviewer"] = "configured_collegehub_admin"
+            chunk.chunk_metadata = metadata
+        db_session.commit()
+    return redirect(url_for("admin_dashboard"))
+
+
 @app.get("/about")
 def about():
+    if not legacy_demo_enabled():
+        return render_template("database/about.html")
     return render_template("about.html")
 
 
 @app.get("/chat")
 def chat():
+    if not legacy_demo_enabled():
+        return render_template("database/chat.html", chatbot_available=ai_is_configured())
     with closing(get_db()) as db:
         faqs = db.execute("SELECT * FROM faqs ORDER BY id").fetchall()
     return render_template("chat.html", faqs=faqs)
 
 
+@app.post("/api/chat")
+def database_chat_api():
+    if legacy_demo_enabled():
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    question = str(payload.get("message", "")).strip()
+    if not question:
+        return jsonify(error="Enter a question."), 400
+    if len(question) > 4000:
+        return jsonify(error="Questions must be 4,000 characters or fewer."), 400
+    if not ai_is_configured():
+        return jsonify(
+            error="The AI service is not configured. Add the AI provider settings to the server environment."
+        ), 503
+
+    conversation_token = session.get("collegehub_chat_token")
+    if not conversation_token:
+        conversation_token = secrets.token_urlsafe(32)
+        session["collegehub_chat_token"] = conversation_token
+    user_key_hash = hashlib.sha256(conversation_token.encode("utf-8")).hexdigest()
+
+    try:
+        with universal_session() as db_session:
+            conversation = db_session.scalar(
+                select(Conversation).where(Conversation.user_key_hash == user_key_hash)
+            )
+            if conversation is None:
+                conversation = Conversation(
+                    user_key_hash=user_key_hash,
+                    title=question[:240],
+                )
+                db_session.add(conversation)
+                db_session.flush()
+            db_session.add(Message(
+                conversation_id=conversation.id,
+                role="user",
+                content=question,
+            ))
+            db_session.commit()
+            answer, citations = answer_question(db_session, question, conversation)
+            db_session.add(Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=answer,
+                message_metadata={"citations": citations},
+            ))
+            db_session.commit()
+            return jsonify(
+                answer=answer,
+                citations=citations,
+                conversation_id=conversation.id,
+            )
+    except AIConfigurationError as error:
+        return jsonify(error=str(error)), 503
+    except (AIProviderError, ValueError) as error:
+        current_app.logger.warning("CollegeHub AI request failed: %s", type(error).__name__)
+        return jsonify(error="The AI service could not complete this request. Try again later."), 502
+
+
+@app.post("/admin/documents")
+@database_admin_required
+def database_admin_upload_document():
+    validate_admin_csrf()
+    uploaded = request.files.get("document")
+    if uploaded is None or not uploaded.filename:
+        abort(400, description="Choose a document to upload.")
+    filename = secure_filename(uploaded.filename)
+    if not filename:
+        abort(400, description="The uploaded filename is invalid.")
+    raw = uploaded.stream.read(15 * 1024 * 1024 + 1)
+    if len(raw) > 15 * 1024 * 1024:
+        abort(413, description="Documents must be 15 MB or smaller.")
+    source_url = request.form.get("source_url", "").strip()
+    academic_year = request.form.get("academic_year", "").strip() or None
+    if academic_year and len(academic_year) > 20:
+        abort(400, description="Academic year must be 20 characters or fewer.")
+    if not source_url:
+        abort(400, description="Provide the official source URL for this document.")
+    with universal_session() as db_session:
+        source = db_session.scalar(
+            select(InformationSource).where(InformationSource.source_url == source_url)
+        )
+        if source is None:
+            abort(400, description="Register this official source before uploading its document.")
+        organisation = source.source_organisation or "Official source"
+        try:
+            result = ingest_document(
+                db_session,
+                filename=filename,
+                raw=raw,
+                source_url=source_url,
+                source_organisation=organisation,
+                academic_year_label=academic_year,
+                content_type=uploaded.mimetype,
+            )
+        except (ValueError, AIConfigurationError, AIProviderError) as error:
+            abort(400, description=str(error))
+    current_app.logger.info(
+        "Document %s indexed as version %s with %s chunks.",
+        result["document_id"], result["version_id"], result["chunks_created"],
+    )
+    return redirect(url_for("admin_dashboard"))
+
+
 @app.post("/demo-chat")
 def demo_chat():
+    if not legacy_demo_enabled():
+        abort(404)
     question = (request.json or {}).get("message", "").strip().lower()
     if not question:
         return jsonify(answer="Please enter a question.")
@@ -658,16 +1151,22 @@ def demo_chat():
 
 @app.get("/login")
 def login():
+    if not legacy_demo_enabled():
+        return render_template("database/login.html")
     return render_template("login.html")
 
 
 @app.get("/student/login")
 def student_login():
+    if not legacy_demo_enabled():
+        abort(503, description="Student accounts are not configured.")
     return render_template("access_form.html", mode="student_login", next_url=request.args.get("next", ""))
 
 
 @app.post("/student/login")
 def student_login_submit():
+    if not legacy_demo_enabled():
+        abort(503, description="Student accounts are not configured.")
     email = request.form.get("email", "").strip()
     if not email or "@" not in email:
         return render_template("access_form.html", mode="student_login", error="Enter a valid demo email address.", next_url="")
@@ -678,11 +1177,15 @@ def student_login_submit():
 
 @app.get("/student/register")
 def student_register():
+    if not legacy_demo_enabled():
+        abort(503, description="Student accounts are not configured.")
     return render_template("access_form.html", mode="student_register", next_url="")
 
 
 @app.post("/student/register")
 def student_register_submit():
+    if not legacy_demo_enabled():
+        abort(503, description="Student accounts are not configured.")
     name = request.form.get("name", "").strip()
     email = request.form.get("email", "").strip()
     password = request.form.get("password", "")
@@ -709,12 +1212,26 @@ def student_dashboard():
 
 @app.post("/student/logout")
 def student_logout():
+    if not legacy_demo_enabled():
+        abort(503, description="Student accounts are not configured.")
     session.pop("collegehub_demo_student", None)
     return redirect(url_for("login"))
 
 
 @app.get("/admin/login")
 def admin_login():
+    if not legacy_demo_enabled():
+        if not database_admin_enabled():
+            abort(503, description="Database administration is not configured.")
+        csrf_token = secrets.token_urlsafe(32)
+        session["collegehub_admin_login_csrf"] = csrf_token
+        return render_template(
+            "database/admin_login.html",
+            csrf_token=csrf_token,
+            next_url=safe_redirect_target(
+                request.args.get("next"), url_for("admin_dashboard")
+            ),
+        )
     if read_only_deployment():
         abort(503, description="The demo administrator is disabled in read-only deployments.")
     return render_template("access_form.html", mode="admin_login", next_url=request.args.get("next", ""))
@@ -722,6 +1239,30 @@ def admin_login():
 
 @app.post("/admin/login")
 def admin_login_submit():
+    if not legacy_demo_enabled():
+        if not database_admin_enabled():
+            abort(503, description="Database administration is not configured.")
+        expected = session.pop("collegehub_admin_login_csrf", "")
+        supplied = request.form.get("csrf_token", "")
+        if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+            abort(400, description="Invalid or missing CSRF token.")
+        password_hash = os.environ["COLLEGEHUB_ADMIN_PASSWORD_HASH"]
+        try:
+            valid_password = check_password_hash(
+                password_hash, request.form.get("password", "")
+            )
+        except ValueError:
+            current_app.logger.error("Configured administrator password hash is invalid.")
+            abort(503, description="Administrator authentication is misconfigured.")
+        if not valid_password:
+            abort(401, description="Invalid administrator credentials.")
+        next_url = safe_redirect_target(
+            request.form.get("next"), url_for("admin_dashboard")
+        )
+        session.clear()
+        session["collegehub_admin"] = True
+        session["collegehub_admin_csrf"] = secrets.token_urlsafe(32)
+        return redirect(next_url)
     if read_only_deployment():
         abort(503, description="The demo administrator is disabled in read-only deployments.")
     session["collegehub_demo_admin"] = True
@@ -730,13 +1271,28 @@ def admin_login_submit():
 
 @app.post("/admin/logout")
 def admin_logout():
+    if not legacy_demo_enabled():
+        if not database_admin_enabled() or not session.get("collegehub_admin"):
+            abort(403)
+        validate_admin_csrf()
+        session.clear()
+        return redirect(url_for("login"))
     session.pop("collegehub_demo_admin", None)
     return redirect(url_for("login"))
 
 
 @app.get("/admin")
-@admin_required
 def admin_dashboard():
+    if not legacy_demo_enabled():
+        if not database_admin_enabled():
+            abort(503, description="Database administration is not configured.")
+        if not session.get("collegehub_admin"):
+            return redirect(url_for("admin_login", next=request.path))
+        return database_admin_dashboard()
+    if read_only_deployment():
+        abort(503, description="The demo administrator is disabled in read-only deployments.")
+    if not session.get("collegehub_demo_admin"):
+        return redirect(url_for("admin_login", next=request.path))
     with closing(get_db()) as db:
         counts = {
             "colleges": db.execute("SELECT COUNT(*) FROM colleges").fetchone()[0],
@@ -1303,7 +1859,629 @@ def admin_moderate_feedback(feedback_id):
 
 @app.get("/health")
 def health():
-    return jsonify(status="ok", mode="read-only demo" if read_only_deployment() else "local demo")
+    try:
+        db = current_app.config["UNIVERSAL_DATABASE"]
+        with db.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError as error:
+        current_app.logger.error("Database health check failed (%s).", type(error).__name__)
+        return jsonify(status="unavailable", database="unavailable"), 503
+    return jsonify(status="ok", database="connected")
+
+
+@contextmanager
+def universal_session():
+    db_session = current_app.config["UNIVERSAL_DATABASE"].session()
+    try:
+        yield db_session
+    except (OperationalError, ProgrammingError):
+        current_app.logger.exception("Universal database query failed.")
+        abort(503, description="The universal database is unavailable or not migrated.")
+    finally:
+        db_session.close()
+
+
+def database_colleges_page():
+    filters = {
+        "name": request.args.get("q", "").strip() or None,
+        "district": request.args.get("district", "").strip() or None,
+        "category": request.args.get("category", "").strip() or None,
+        "institution_type": request.args.get("type", "").strip() or None,
+        "program_name": request.args.get("program", "").strip() or None,
+        "affiliation": request.args.get("affiliation", "").strip() or None,
+        "accreditation": request.args.get("accreditation", "").strip() or None,
+        "facility_code": request.args.get("facility", "").strip() or None,
+    }
+    if any(value and len(value) > 200 for value in filters.values()):
+        abort(400, description="Search filters must be 200 characters or fewer.")
+    page = parse_api_integer("page", default=1, minimum=1, maximum=100_000)
+    per_page = parse_api_integer("per_page", default=25, minimum=1, maximum=100)
+    sort = request.args.get("sort", "name")
+    if sort not in {"name", "district"}:
+        abort(400, description="Sort must be name or district.")
+
+    with universal_session() as db_session:
+        service = InstitutionService(db_session)
+        total = service.count(**filters)
+        pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, pages)
+        institutions = service.search(
+            **filters,
+            sort_by=sort,
+            limit=per_page,
+            offset=(page - 1) * per_page,
+        )
+        categories = db_session.scalars(
+            select(InstitutionCategory).order_by(InstitutionCategory.name)
+        ).all()
+        institution_types = db_session.scalars(
+            select(InstitutionType).order_by(InstitutionType.name)
+        ).all()
+        districts = db_session.scalars(
+            select(Institution.district)
+            .where(Institution.district.is_not(None))
+            .distinct()
+            .order_by(Institution.district)
+        ).all()
+        programs = db_session.scalars(
+            select(Program.name).distinct().order_by(Program.name)
+        ).all()
+        facilities = db_session.execute(
+            select(Facility.code, Facility.name).order_by(Facility.name)
+        ).all()
+    return render_template(
+        "database/colleges.html",
+        institutions=institutions,
+        categories=categories,
+        institution_types=institution_types,
+        districts=districts,
+        programs=programs,
+        facilities=facilities,
+        filters=filters,
+        page=page,
+        pages=pages,
+        per_page=per_page,
+        sort=sort,
+        total=total,
+    )
+
+
+def database_college_detail_page(institution_id: int):
+    with universal_session() as db_session:
+        service = InstitutionService(db_session)
+        institution = service.profile(institution_id)
+        if institution is None:
+            abort(404)
+        admissions = AdmissionService(db_session).records(institution_id)
+        fees = FeeService(db_session).structures(institution_id)
+        placements = db_session.scalars(
+            select(PlacementReport)
+            .where(PlacementReport.institution_id == institution_id)
+            .order_by(PlacementReport.reporting_year.desc())
+        ).all()
+        facilities = db_session.scalars(
+            select(InstitutionFacility)
+            .where(InstitutionFacility.institution_id == institution_id)
+            .order_by(InstitutionFacility.id)
+        ).all()
+        return render_template(
+            "database/college_detail.html",
+            institution=institution,
+            admissions=admissions,
+            fees=fees,
+            placements=placements,
+            facilities=facilities,
+        )
+
+
+def database_compare_page():
+    raw_ids = request.args.get("ids", "")
+    try:
+        ids = [int(value) for value in raw_ids.split(",") if value]
+    except ValueError:
+        abort(400, description="ids must be comma-separated positive institution IDs.")
+    if len(ids) > 5 or any(value < 1 for value in ids):
+        abort(400, description="Provide up to five positive institution IDs.")
+    ids = list(dict.fromkeys(ids))
+    with universal_session() as db_session:
+        service = InstitutionService(db_session)
+        institutions = [
+            service.profile(institution.id)
+            for institution in service.compare(ids)
+        ] if ids else []
+        return render_template("database/compare.html", institutions=institutions)
+
+
+def database_recommendations_page():
+    program = request.args.get("program", "").strip()
+    district = request.args.get("district", "").strip()
+    category = request.args.get("category", "").strip()
+    institution_type = request.args.get("type", "").strip()
+    if any(len(value) > 200 for value in (program, district, category, institution_type)):
+        abort(400, description="Recommendation filters must be 200 characters or fewer.")
+    categories = []
+    districts = []
+    institution_types = []
+    results = []
+    with universal_session() as db_session:
+        categories = db_session.scalars(
+            select(InstitutionCategory).order_by(InstitutionCategory.name)
+        ).all()
+        districts = db_session.scalars(
+            select(Institution.district)
+            .where(Institution.district.is_not(None))
+            .distinct()
+            .order_by(Institution.district)
+        ).all()
+        institution_types = db_session.scalars(
+            select(InstitutionType).order_by(InstitutionType.name)
+        ).all()
+        has_preferences = any((program, district, category, institution_type))
+        if has_preferences:
+            candidates = InstitutionService(db_session).search(
+                name=None,
+                district=district or None,
+                category=category or None,
+                institution_type=institution_type or None,
+                program_name=program or None,
+                limit=100,
+            )
+            results = [
+                candidate
+                for candidate in candidates
+                if candidate.provenance.verification_status == "verified"
+                and candidate.provenance.source_id is not None
+                and candidate.provenance.verification_date is not None
+                and any(
+                    item.provenance.verification_status == "verified"
+                    and item.provenance.source_id is not None
+                    for item in candidate.programs
+                )
+            ]
+        return render_template(
+            "database/recommendations.html",
+            categories=categories,
+            districts=districts,
+            institution_types=institution_types,
+            results=results,
+            selected_program=program,
+            selected_district=district,
+            selected_category=category,
+            selected_type=institution_type,
+            has_preferences=any((program, district, category, institution_type)),
+        )
+
+
+def database_cutoffs_page():
+    measurement_types = (
+        "rank", "score", "marks", "percentage", "cutoff_score", "merit_position"
+    )
+    institution_id_raw = request.args.get("institution", "").strip()
+    year = request.args.get("year", "").strip()
+    measurement_type = request.args.get("metric", "").strip()
+    student_category = request.args.get("category", "").strip()
+    quota = request.args.get("quota", "").strip()
+    try:
+        institution_id = int(institution_id_raw) if institution_id_raw else None
+    except ValueError:
+        abort(400, description="Institution ID must be an integer.")
+    if institution_id is not None and institution_id < 1:
+        abort(400, description="Institution ID must be positive.")
+    if measurement_type and measurement_type not in measurement_types:
+        abort(400, description="Select a supported admission measurement type.")
+
+    with universal_session() as db_session:
+        institutions = db_session.scalars(
+            select(Institution).order_by(Institution.official_name)
+        ).all()
+        years = db_session.scalars(
+            select(AcademicYear.label).join(
+                AdmissionRecord, AdmissionRecord.academic_year_id == AcademicYear.id
+            ).distinct().order_by(AcademicYear.label.desc())
+        ).all()
+        categories = db_session.scalars(
+            select(AdmissionRecord.student_category)
+            .where(AdmissionRecord.student_category.is_not(None))
+            .distinct()
+            .order_by(AdmissionRecord.student_category)
+        ).all()
+        statement = select(AdmissionRecord).order_by(
+            AdmissionRecord.academic_year_id.desc(),
+            AdmissionRecord.institution_id,
+            AdmissionRecord.program_id,
+            AdmissionRecord.measurement_type,
+        )
+        if institution_id is not None:
+            statement = statement.where(AdmissionRecord.institution_id == institution_id)
+        if year:
+            statement = statement.where(
+                AdmissionRecord.academic_year.has(AcademicYear.label == year)
+            )
+        if measurement_type:
+            statement = statement.where(
+                AdmissionRecord.measurement_type == measurement_type
+            )
+        if student_category:
+            statement = statement.where(
+                AdmissionRecord.student_category == student_category
+            )
+        if quota:
+            statement = statement.where(AdmissionRecord.quota == quota)
+        records = db_session.scalars(statement.limit(500)).all()
+        return render_template(
+            "database/cutoffs.html",
+            institutions=institutions,
+            years=years,
+            categories=categories,
+            records=records,
+            measurement_types=measurement_types,
+            selected_institution=institution_id,
+            selected_year=year,
+            selected_metric=measurement_type,
+            selected_category=student_category,
+            selected_quota=quota,
+        )
+
+
+def parse_api_integer(name, *, default, minimum, maximum):
+    raw_value = request.args.get(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        abort(400, description=f"{name} must be an integer.")
+    if value < minimum or value > maximum:
+        abort(400, description=f"{name} must be between {minimum} and {maximum}.")
+    return value
+
+
+def serialize_provenance(provenance):
+    source = provenance.source
+    return {
+        "verification_status": provenance.verification_status,
+        "academic_year": provenance.academic_year.label if provenance.academic_year else None,
+        "collection_date": provenance.collection_date.isoformat() if provenance.collection_date else None,
+        "verification_date": provenance.verification_date.isoformat() if provenance.verification_date else None,
+        "reviewer": provenance.reviewer,
+        "source": {
+            "url": source.source_url,
+            "organisation": source.source_organisation,
+            "document_title": source.document_title,
+            "publication_date": source.publication_date.isoformat() if source.publication_date else None,
+        } if source else None,
+    }
+
+
+def serialize_institution(institution, *, profile=False):
+    result = {
+        "id": institution.id,
+        "official_name": institution.official_name,
+        "institution_code": institution.institution_code,
+        "category": {"code": institution.category.code, "name": institution.category.name},
+        "institution_type": {
+            "code": institution.institution_type.code,
+            "name": institution.institution_type.name,
+        },
+        "district": institution.district,
+        "city": institution.city,
+        "official_website": institution.official_website,
+        "operational_status": institution.operational_status,
+        "verification": serialize_provenance(institution.provenance),
+    }
+    if not profile:
+        return result
+    result.update({
+        "address": institution.address,
+        "contact_email": institution.contact_email,
+        "contact_phone": institution.contact_phone,
+        "establishment_year": institution.establishment_year,
+        "programs": [{
+            "id": program.id,
+            "name": program.name,
+            "award": program.award,
+            "level": program.level,
+            "category": program.category.code,
+            "verification": serialize_provenance(program.provenance),
+        } for program in institution.programs],
+        "university": {
+            "institution_id": institution.university.institution_id,
+            "official_name": institution.university.institution.official_name,
+            "establishment_act": institution.university.establishment_act,
+            "registration_code": institution.university.registration_code,
+            "verification": serialize_provenance(institution.university.provenance),
+        } if institution.university else None,
+        "affiliations": [{
+            "university_id": affiliation.university_id,
+            "university_name": affiliation.university.institution.official_name,
+            "affiliation_code": affiliation.affiliation_code,
+            "status": affiliation.status,
+            "valid_from_year": affiliation.valid_from_year.label if affiliation.valid_from_year else None,
+            "valid_until_year": affiliation.valid_until_year.label if affiliation.valid_until_year else None,
+            "verification": serialize_provenance(affiliation.provenance),
+        } for affiliation in institution.affiliations],
+        "campuses": [{
+            "id": campus.id,
+            "name": campus.name,
+            "city": campus.city,
+            "district": campus.district,
+            "address": campus.address,
+            "is_main_campus": campus.is_main_campus,
+            "verification": serialize_provenance(campus.provenance),
+        } for campus in institution.campuses],
+        "departments": [{
+            "id": department.id,
+            "name": department.name,
+            "code": department.code,
+            "verification": serialize_provenance(department.provenance),
+        } for department in institution.departments],
+        "accreditations": [{
+            "agency": accreditation.agency,
+            "grade": accreditation.grade,
+            "awarded_on": accreditation.awarded_on.isoformat() if accreditation.awarded_on else None,
+            "valid_until": accreditation.valid_until.isoformat() if accreditation.valid_until else None,
+            "verification": serialize_provenance(accreditation.provenance),
+        } for accreditation in institution.accreditations],
+    })
+    return result
+
+
+@app.get("/api/institutions")
+def api_institutions():
+    limit = parse_api_integer("limit", default=25, minimum=1, maximum=100)
+    offset = parse_api_integer("offset", default=0, minimum=0, maximum=100_000)
+    sort_by = request.args.get("sort", "name")
+    if sort_by not in {"name", "district"}:
+        abort(400, description="sort must be name or district.")
+    filters = {
+        "name": request.args.get("q", "").strip() or None,
+        "district": request.args.get("district", "").strip() or None,
+        "category": request.args.get("category", "").strip() or None,
+        "institution_type": request.args.get("type", "").strip() or None,
+        "program_name": request.args.get("program", "").strip() or None,
+        "affiliation": request.args.get("affiliation", "").strip() or None,
+        "accreditation": request.args.get("accreditation", "").strip() or None,
+        "facility_code": request.args.get("facility", "").strip() or None,
+    }
+    if any(value and len(value) > 200 for value in filters.values() if isinstance(value, str)):
+        abort(400, description="Search filters must be 200 characters or fewer.")
+    with universal_session() as db_session:
+        service = InstitutionService(db_session)
+        total = service.count(**filters)
+        institutions = service.search(
+            **filters, limit=limit, offset=offset, sort_by=sort_by
+        )
+        return jsonify(
+            items=[serialize_institution(item) for item in institutions],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+
+@app.get("/api/institutions/<int:institution_id>")
+def api_institution_profile(institution_id):
+    with universal_session() as db_session:
+        institution = InstitutionService(db_session).profile(institution_id)
+        if institution is None:
+            abort(404)
+        return jsonify(item=serialize_institution(institution, profile=True))
+
+
+@app.get("/api/programs")
+def api_programs():
+    limit = parse_api_integer("limit", default=50, minimum=1, maximum=100)
+    offset = parse_api_integer("offset", default=0, minimum=0, maximum=100_000)
+    institution_id = request.args.get("institution_id")
+    try:
+        parsed_institution_id = int(institution_id) if institution_id else None
+    except ValueError:
+        abort(400, description="institution_id must be an integer.")
+    if parsed_institution_id is not None and parsed_institution_id < 1:
+        abort(400, description="institution_id must be a positive integer.")
+    filters = {
+        "name": request.args.get("q", "").strip() or None,
+        "institution_id": parsed_institution_id,
+        "category": request.args.get("category", "").strip() or None,
+    }
+    with universal_session() as db_session:
+        service = ProgramService(db_session)
+        total = service.count(**filters)
+        programs = service.search(**filters, limit=limit, offset=offset)
+        return jsonify(items=[{
+            "id": program.id,
+            "institution_id": program.institution_id,
+            "institution_name": program.institution.official_name,
+            "name": program.name,
+            "award": program.award,
+            "level": program.level,
+            "category": program.category.code,
+            "verification": serialize_provenance(program.provenance),
+        } for program in programs], total=total, limit=limit, offset=offset)
+
+
+@app.get("/api/institutions/<int:institution_id>/admissions")
+def api_admission_records(institution_id):
+    with universal_session() as db_session:
+        records = AdmissionService(db_session).records(institution_id)
+        return jsonify(items=[{
+            "id": record.id,
+            "program": record.program.name,
+            "academic_year": record.academic_year.label,
+            "authority": record.admission_authority.name if record.admission_authority else None,
+            "route": record.admission_route.name if record.admission_route else None,
+            "counselling_round": record.counselling_round.name if record.counselling_round else None,
+            "student_category": record.student_category,
+            "quota": record.quota,
+            "measurement_type": record.measurement_type,
+            "measurement_value": str(record.measurement_value),
+            "measurement_unit": record.measurement_unit,
+            "provenance": serialize_provenance(record.provenance),
+        } for record in records])
+
+
+@app.get("/api/institutions/<int:institution_id>/fees")
+def api_fee_structures(institution_id):
+    with universal_session() as db_session:
+        structures = FeeService(db_session).structures(institution_id)
+        return jsonify(items=[{
+            "id": structure.id,
+            "program": structure.program.name if structure.program else None,
+            "academic_year": structure.academic_year.label,
+            "student_category": structure.student_category,
+            "currency": structure.currency,
+            "provenance": serialize_provenance(structure.provenance),
+            "components": [{
+                "type": component.component_type,
+                "name": component.name,
+                "amount": str(component.amount),
+                "currency": structure.currency,
+                "provenance": serialize_provenance(component.provenance),
+            } for component in structure.components],
+        } for structure in structures])
+
+
+@app.get("/api/institutions/<int:institution_id>/placements")
+def api_placement_reports(institution_id):
+    with universal_session() as db_session:
+        reports = db_session.scalars(
+            select(PlacementReport)
+            .where(PlacementReport.institution_id == institution_id)
+            .order_by(PlacementReport.reporting_year.desc())
+        ).all()
+        return jsonify(items=[{
+            "id": report.id,
+            "program": report.program.name if report.program else None,
+            "reporting_year": report.reporting_year,
+            "eligible_students": report.eligible_students,
+            "placed_students": report.placed_students,
+            "median_salary": str(report.median_salary) if report.median_salary is not None else None,
+            "highest_salary": str(report.highest_salary) if report.highest_salary is not None else None,
+            "placement_percentage": (
+                str(report.placement_percentage)
+                if report.placement_percentage is not None else None
+            ),
+            "provenance": serialize_provenance(report.provenance),
+        } for report in reports])
+
+
+@app.get("/api/admissions")
+def api_admission_analytics():
+    limit = parse_api_integer("limit", default=50, minimum=1, maximum=100)
+    offset = parse_api_integer("offset", default=0, minimum=0, maximum=100_000)
+    supported_measurements = {
+        "rank", "score", "marks", "percentage", "cutoff_score", "merit_position"
+    }
+    measurement_type = request.args.get("metric", "").strip() or None
+    if measurement_type and measurement_type not in supported_measurements:
+        abort(400, description="Select a supported admission measurement type.")
+    institution_id_raw = request.args.get("institution_id")
+    try:
+        institution_id = int(institution_id_raw) if institution_id_raw else None
+    except ValueError:
+        abort(400, description="institution_id must be an integer.")
+    if institution_id is not None and institution_id < 1:
+        abort(400, description="institution_id must be positive.")
+    year = request.args.get("year", "").strip() or None
+    category = request.args.get("category", "").strip() or None
+    quota = request.args.get("quota", "").strip() or None
+    if any(value and len(value) > 100 for value in (year, category, quota)):
+        abort(400, description="Admission filters must be 100 characters or fewer.")
+
+    with universal_session() as db_session:
+        ids = select(AdmissionRecord.id)
+        statement = select(AdmissionRecord)
+        if institution_id is not None:
+            ids = ids.where(AdmissionRecord.institution_id == institution_id)
+            statement = statement.where(AdmissionRecord.institution_id == institution_id)
+        if measurement_type:
+            ids = ids.where(AdmissionRecord.measurement_type == measurement_type)
+            statement = statement.where(AdmissionRecord.measurement_type == measurement_type)
+        if year:
+            ids = ids.where(AdmissionRecord.academic_year.has(AcademicYear.label == year))
+            statement = statement.where(
+                AdmissionRecord.academic_year.has(AcademicYear.label == year)
+            )
+        if category:
+            ids = ids.where(AdmissionRecord.student_category == category)
+            statement = statement.where(AdmissionRecord.student_category == category)
+        if quota:
+            ids = ids.where(AdmissionRecord.quota == quota)
+            statement = statement.where(AdmissionRecord.quota == quota)
+        total = db_session.scalar(
+            select(func.count()).select_from(ids.subquery())
+        ) or 0
+        records = db_session.scalars(
+            statement.order_by(
+                AdmissionRecord.academic_year_id.desc(),
+                AdmissionRecord.institution_id,
+                AdmissionRecord.program_id,
+            ).limit(limit).offset(offset)
+        ).all()
+        return jsonify(
+            items=[{
+                "id": record.id,
+                "institution_id": record.institution_id,
+                "institution_name": record.institution.official_name,
+                "program_id": record.program_id,
+                "program_name": record.program.name,
+                "academic_year": record.academic_year.label,
+                "student_category": record.student_category,
+                "quota": record.quota,
+                "measurement_type": record.measurement_type,
+                "measurement_value": str(record.measurement_value),
+                "measurement_unit": record.measurement_unit,
+                "provenance": serialize_provenance(record.provenance),
+            } for record in records],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+
+@app.get("/api/institutions/compare")
+def api_compare_institutions():
+    raw_ids = request.args.get("ids", "")
+    try:
+        ids = [int(value) for value in raw_ids.split(",") if value]
+    except ValueError:
+        abort(400, description="ids must be comma-separated positive integers.")
+    if not ids or any(value < 1 for value in ids) or len(set(ids)) > 5:
+        abort(400, description="Provide between one and five positive institution IDs.")
+    with universal_session() as db_session:
+        institutions = InstitutionService(db_session).compare(ids)
+        return jsonify(items=[serialize_institution(item) for item in institutions])
+
+
+@app.get("/api/institutions/recommendations")
+def api_recommendation_candidates():
+    limit = parse_api_integer("limit", default=25, minimum=1, maximum=100)
+    filters = {
+        "district": request.args.get("district", "").strip() or None,
+        "category": request.args.get("category", "").strip() or None,
+        "program_name": request.args.get("program", "").strip() or None,
+        "limit": limit,
+    }
+    with universal_session() as db_session:
+        candidates = RecommendationService(db_session).candidates(**filters)
+        return jsonify(items=[serialize_institution(item) for item in candidates])
+
+
+@app.get("/api/provenance/<int:provenance_id>/verification-history")
+def api_verification_history(provenance_id):
+    with universal_session() as db_session:
+        history = VerificationService(db_session).history(provenance_id)
+        return jsonify(items=[{
+            "id": item.id,
+            "verification_status": item.verification_status,
+            "reviewer": item.reviewer,
+            "verified_at": item.verified_at.isoformat() if item.verified_at else None,
+            "notes": item.notes,
+            "source": {
+                "url": item.source.source_url,
+                "organisation": item.source.source_organisation,
+            } if item.source else None,
+        } for item in history])
 
 
 if __name__ == "__main__":
