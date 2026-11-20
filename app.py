@@ -2053,14 +2053,15 @@ def database_recommendations_page():
 
 
 def database_cutoffs_page():
-    measurement_types = (
-        "rank", "score", "marks", "percentage", "cutoff_score", "merit_position"
-    )
+    measurement_types = ("rank", "score", "marks", "percentage", "cutoff_score", "merit_position")
     institution_id_raw = request.args.get("institution", "").strip()
     year = request.args.get("year", "").strip()
-    measurement_type = request.args.get("metric", "").strip()
-    student_category = request.args.get("category", "").strip()
+    measurement_type = request.args.get("metric", "cutoff_score").strip()
+    student_category = request.args.get("category", "").strip().upper()
     quota = request.args.get("quota", "").strip()
+    search = request.args.get("q", "").strip()
+    if len(search) > 200 or len(quota) > 100:
+        abort(400, description="Search text must be 200 characters or fewer.")
     try:
         institution_id = int(institution_id_raw) if institution_id_raw else None
     except ValueError:
@@ -2069,57 +2070,50 @@ def database_cutoffs_page():
         abort(400, description="Institution ID must be positive.")
     if measurement_type and measurement_type not in measurement_types:
         abort(400, description="Select a supported admission measurement type.")
+    if student_category and student_category not in {"OC", "BC", "MBC", "SC", "ST", "BCM", "SCA"}:
+        abort(400, description="Select a valid student category.")
 
     with universal_session() as db_session:
-        institutions = db_session.scalars(
-            select(Institution).order_by(Institution.official_name)
-        ).all()
+        institutions = db_session.scalars(select(Institution).order_by(Institution.official_name)).all()
         years = db_session.scalars(
-            select(AcademicYear.label).join(
-                AdmissionRecord, AdmissionRecord.academic_year_id == AcademicYear.id
-            ).distinct().order_by(AcademicYear.label.desc())
+            select(AcademicYear.label).join(AdmissionRecord, AdmissionRecord.academic_year_id == AcademicYear.id)
+            .distinct().order_by(AcademicYear.label.desc())
         ).all()
         categories = db_session.scalars(
-            select(AdmissionRecord.student_category)
-            .where(AdmissionRecord.student_category.is_not(None))
-            .distinct()
-            .order_by(AdmissionRecord.student_category)
+            select(AdmissionRecord.student_category).where(AdmissionRecord.student_category.is_not(None))
+            .distinct().order_by(AdmissionRecord.student_category)
         ).all()
+        if not year and "2024" in years:
+            year = "2024"
         statement = select(AdmissionRecord).order_by(
-            AdmissionRecord.academic_year_id.desc(),
-            AdmissionRecord.institution_id,
-            AdmissionRecord.program_id,
-            AdmissionRecord.measurement_type,
+            AdmissionRecord.academic_year_id.desc(), AdmissionRecord.institution_id,
+            AdmissionRecord.program_id, AdmissionRecord.student_category,
         )
         if institution_id is not None:
             statement = statement.where(AdmissionRecord.institution_id == institution_id)
         if year:
-            statement = statement.where(
-                AdmissionRecord.academic_year.has(AcademicYear.label == year)
-            )
+            statement = statement.where(AdmissionRecord.academic_year.has(AcademicYear.label == year))
         if measurement_type:
-            statement = statement.where(
-                AdmissionRecord.measurement_type == measurement_type
-            )
+            statement = statement.where(AdmissionRecord.measurement_type == measurement_type)
         if student_category:
-            statement = statement.where(
-                AdmissionRecord.student_category == student_category
-            )
+            statement = statement.where(AdmissionRecord.student_category == student_category)
         if quota:
             statement = statement.where(AdmissionRecord.quota == quota)
-        records = db_session.scalars(statement.limit(500)).all()
+        if search:
+            pattern = f"%{search}%"
+            statement = statement.where(
+                AdmissionRecord.institution.has(Institution.official_name.ilike(pattern))
+                | AdmissionRecord.program.has(Program.name.ilike(pattern))
+                | AdmissionRecord.program.has(Program.code.ilike(pattern))
+                | AdmissionRecord.institution.has(Institution.institution_code.ilike(pattern))
+            )
+        records = db_session.scalars(statement.limit(1000)).all()
         return render_template(
-            "database/cutoffs.html",
-            institutions=institutions,
-            years=years,
-            categories=categories,
-            records=records,
-            measurement_types=measurement_types,
-            selected_institution=institution_id,
-            selected_year=year,
-            selected_metric=measurement_type,
-            selected_category=student_category,
-            selected_quota=quota,
+            "database/cutoffs.html", institutions=institutions, years=years,
+            categories=categories, records=records, measurement_types=measurement_types,
+            selected_institution=institution_id, selected_year=year,
+            selected_metric=measurement_type, selected_category=student_category,
+            selected_quota=quota, selected_search=search,
         )
 
 
